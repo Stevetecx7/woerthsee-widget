@@ -142,48 +142,68 @@
 </div>
 
 <script>
-// GKD Bayern – Tabellen-URL für Wörthsee
-const TABLE_URL = 'https://www.gkd.bayern.de/de/seen/wassertemperatur/isar/woerthsee-16651003/messwerte/tabelle';
+const TARGET = 'https://www.gkd.bayern.de/de/seen/wassertemperatur/isar/woerthsee-16651003/messwerte/tabelle';
 
-// CORS-Proxy: allorigins.win (kostenlos, kein Key nötig)
-const PROXY = 'https://api.allorigins.win/get?url=';
+// Mehrere Proxies als Fallback-Kette
+const PROXIES = [
+  url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+  url => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
+  url => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+];
+
+async function tryProxy(proxyFn, url) {
+  const res = await fetch(proxyFn(url), { signal: AbortSignal.timeout(8000) });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const text = await res.text();
+  try {
+    const json = JSON.parse(text);
+    return json.contents || json;
+  } catch {
+    return text;
+  }
+}
+
+function parseTemp(html) {
+  const matches = [...html.matchAll(/<td[^>]*>\s*(\d{2}\.\d{2}\.\d{4}\s+\d{2}:\d{2})\s*<\/td>\s*<td[^>]*>\s*([\d,]+)\s*<\/td>/g)];
+  if (matches.length > 0) return { zeit: matches[0][1].trim(), wert: matches[0][2].trim() };
+  const simple = html.match(/(\d{2}\.\d{2}\.\d{4} \d{2}:\d{2})[\s\S]{0,50}?([\d]+,[\d]+)/);
+  if (simple) return { zeit: simple[1], wert: simple[2] };
+  return null;
+}
 
 async function fetchTemp() {
   const statusEl = document.getElementById('status');
   const tempEl   = document.getElementById('temp');
   const zeitEl   = document.getElementById('zeit');
 
-  try {
-    statusEl.className = 'status loading';
-    statusEl.textContent = 'Lade Daten...';
+  statusEl.className = 'status loading';
+  statusEl.textContent = 'Lade Daten...';
 
-    const res  = await fetch(PROXY + encodeURIComponent(TABLE_URL));
-    const json = await res.json();
-    const html = json.contents;
+  let lastError = null;
 
-    // Ersten Tabellen-Datensatz extrahieren
-    // Muster: <td>25.04.2026 14:45</td>\n<td>15,2</td>
-    const rowMatch = html.match(/<tr[^>]*>[\s\S]*?<td[^>]*>([\d.]+\s[\d:]+)<\/td>[\s\S]*?<td[^>]*>([\d,]+)<\/td>/);
-
-    if (rowMatch) {
-      const zeitRaw = rowMatch[1].trim();   // "25.04.2026 14:45"
-      const wert    = rowMatch[2].trim();   // "15,2"
-
-      tempEl.textContent = wert.replace(',', ','); // Komma behalten
-      zeitEl.textContent = 'MESSUNG ' + zeitRaw + ' UHR';
-      statusEl.className = 'status';
-      statusEl.textContent = 'GKD Bayern · Aktualisiert ' + new Date().toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'});
-    } else {
-      throw new Error('Kein Messwert gefunden');
+  for (const proxyFn of PROXIES) {
+    try {
+      const html = await tryProxy(proxyFn, TARGET);
+      const result = parseTemp(html);
+      if (result) {
+        tempEl.textContent = result.wert;
+        zeitEl.textContent = 'MESSUNG ' + result.zeit + ' UHR';
+        statusEl.className = 'status';
+        statusEl.textContent = 'GKD Bayern · ' + new Date().toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'}) + ' Uhr';
+        return;
+      } else {
+        throw new Error('Kein Messwert im HTML');
+      }
+    } catch (err) {
+      lastError = err;
     }
-  } catch (err) {
-    statusEl.className = 'status error';
-    statusEl.textContent = 'Fehler beim Laden – ' + new Date().toLocaleTimeString('de-DE');
-    console.error(err);
   }
+
+  statusEl.className = 'status error';
+  statusEl.textContent = 'Fehler · ' + new Date().toLocaleTimeString('de-DE') + ' · Retry in 10min';
+  console.error('Alle Proxies fehlgeschlagen:', lastError);
 }
 
-// Sofort laden, dann alle 10 Minuten
 fetchTemp();
 setInterval(fetchTemp, 10 * 60 * 1000);
 </script>
