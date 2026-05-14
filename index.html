@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Wörthsee Temperatur</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@300;600&display=swap');
+
+  :root {
+    --bg: #080c10;
+    --blue: #00b4d8;
+    --blue-dim: #0077a8;
+    --white: #e8f4f8;
+    --muted: #3a5060;
+    --glow: 0 0 18px rgba(0,180,216,0.45);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    font-family: 'Rajdhani', sans-serif;
+  }
+
+  .widget {
+    position: relative;
+    padding: 36px 48px 32px;
+    text-align: center;
+    min-width: 280px;
+  }
+
+  /* Corner brackets */
+  .widget::before, .widget::after,
+  .inner::before, .inner::after {
+    content: '';
+    position: absolute;
+    width: 18px;
+    height: 18px;
+    border-color: var(--blue);
+    border-style: solid;
+  }
+  .widget::before { top: 0; left: 0; border-width: 2px 0 0 2px; }
+  .widget::after  { top: 0; right: 0; border-width: 2px 2px 0 0; }
+  .inner::before  { bottom: 0; left: 0; border-width: 0 0 2px 2px; }
+  .inner::after   { bottom: 0; right: 0; border-width: 0 2px 2px 0; }
+
+  .inner { position: relative; }
+
+  .label {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 4px;
+    color: var(--blue-dim);
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+
+  .location {
+    font-size: 28px;
+    font-weight: 600;
+    letter-spacing: 2px;
+    color: var(--white);
+    margin-bottom: 18px;
+    line-height: 1;
+  }
+
+  .temp-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: center;
+    gap: 4px;
+  }
+
+  .temp-value {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 72px;
+    color: var(--blue);
+    text-shadow: var(--glow);
+    line-height: 1;
+    letter-spacing: -2px;
+    transition: opacity 0.4s;
+  }
+
+  .temp-unit {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 28px;
+    color: var(--blue-dim);
+    align-self: flex-start;
+    margin-top: 10px;
+  }
+
+  .divider {
+    width: 60px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--blue), transparent);
+    margin: 16px auto;
+  }
+
+  .meta {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 2px;
+  }
+
+  .status {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 10px;
+    color: var(--muted);
+    margin-top: 8px;
+    min-height: 14px;
+    letter-spacing: 1px;
+  }
+
+  .status.error { color: #e05050; }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+  .loading { animation: pulse 1.2s ease-in-out infinite; color: var(--blue-dim) !important; }
+</style>
+</head>
+<body>
+<div class="widget">
+  <div class="inner">
+    <div class="label">Wassertemperatur</div>
+    <div class="location">Wörthsee</div>
+    <div class="temp-row">
+      <div class="temp-value" id="temp">--</div>
+      <div class="temp-unit">°C</div>
+    </div>
+    <div class="divider"></div>
+    <div class="meta" id="zeit">--</div>
+    <div class="status loading" id="status">Lade Daten...</div>
+  </div>
+</div>
+
+<script>
+// GKD Bayern – Tabellen-URL für Wörthsee
+const TABLE_URL = 'https://www.gkd.bayern.de/de/seen/wassertemperatur/isar/woerthsee-16651003/messwerte/tabelle';
+
+// CORS-Proxy: allorigins.win (kostenlos, kein Key nötig)
+const PROXY = 'https://api.allorigins.win/get?url=';
+
+async function fetchTemp() {
+  const statusEl = document.getElementById('status');
+  const tempEl   = document.getElementById('temp');
+  const zeitEl   = document.getElementById('zeit');
+
+  try {
+    statusEl.className = 'status loading';
+    statusEl.textContent = 'Lade Daten...';
+
+    const res  = await fetch(PROXY + encodeURIComponent(TABLE_URL));
+    const json = await res.json();
+    const html = json.contents;
+
+    // Ersten Tabellen-Datensatz extrahieren
+    // Muster: <td>25.04.2026 14:45</td>\n<td>15,2</td>
+    const rowMatch = html.match(/<tr[^>]*>[\s\S]*?<td[^>]*>([\d.]+\s[\d:]+)<\/td>[\s\S]*?<td[^>]*>([\d,]+)<\/td>/);
+
+    if (rowMatch) {
+      const zeitRaw = rowMatch[1].trim();   // "25.04.2026 14:45"
+      const wert    = rowMatch[2].trim();   // "15,2"
+
+      tempEl.textContent = wert.replace(',', ','); // Komma behalten
+      zeitEl.textContent = 'MESSUNG ' + zeitRaw + ' UHR';
+      statusEl.className = 'status';
+      statusEl.textContent = 'GKD Bayern · Aktualisiert ' + new Date().toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'});
+    } else {
+      throw new Error('Kein Messwert gefunden');
+    }
+  } catch (err) {
+    statusEl.className = 'status error';
+    statusEl.textContent = 'Fehler beim Laden – ' + new Date().toLocaleTimeString('de-DE');
+    console.error(err);
+  }
+}
+
+// Sofort laden, dann alle 10 Minuten
+fetchTemp();
+setInterval(fetchTemp, 10 * 60 * 1000);
+</script>
+</body>
+</html>
