@@ -29,12 +29,11 @@
 
   .widget {
     position: relative;
-    padding: 36px 48px 32px;
+    padding: 32px 40px 28px;
     text-align: center;
-    min-width: 280px;
+    width: 520px;
   }
 
-  /* Corner brackets */
   .widget::before, .widget::after,
   .inner::before, .inner::after {
     content: '';
@@ -53,19 +52,19 @@
 
   .label {
     font-family: 'Share Tech Mono', monospace;
-    font-size: 11px;
+    font-size: 10px;
     letter-spacing: 4px;
     color: var(--blue-dim);
     text-transform: uppercase;
-    margin-bottom: 6px;
+    margin-bottom: 4px;
   }
 
   .location {
-    font-size: 28px;
+    font-size: 26px;
     font-weight: 600;
     letter-spacing: 2px;
     color: var(--white);
-    margin-bottom: 18px;
+    margin-bottom: 14px;
     line-height: 1;
   }
 
@@ -74,21 +73,21 @@
     align-items: baseline;
     justify-content: center;
     gap: 4px;
+    margin-bottom: 4px;
   }
 
   .temp-value {
     font-family: 'Share Tech Mono', monospace;
-    font-size: 72px;
+    font-size: 68px;
     color: var(--blue);
     text-shadow: var(--glow);
     line-height: 1;
     letter-spacing: -2px;
-    transition: opacity 0.4s;
   }
 
   .temp-unit {
     font-family: 'Share Tech Mono', monospace;
-    font-size: 28px;
+    font-size: 26px;
     color: var(--blue-dim);
     align-self: flex-start;
     margin-top: 10px;
@@ -98,7 +97,7 @@
     width: 60px;
     height: 1px;
     background: linear-gradient(90deg, transparent, var(--blue), transparent);
-    margin: 16px auto;
+    margin: 12px auto;
   }
 
   .meta {
@@ -106,14 +105,42 @@
     font-size: 10px;
     color: var(--muted);
     letter-spacing: 2px;
+    margin-bottom: 20px;
+  }
+
+  .chart-wrap {
+    position: relative;
+    width: 100%;
+    height: 120px;
+    margin-bottom: 4px;
+  }
+
+  canvas {
+    display: block;
+    width: 100% !important;
+    height: 100% !important;
+  }
+
+  .chart-labels {
+    display: flex;
+    justify-content: space-between;
+    padding: 0 2px;
+    margin-top: 4px;
+  }
+
+  .chart-labels span {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 9px;
+    color: var(--muted);
+    letter-spacing: 1px;
   }
 
   .status {
     font-family: 'Share Tech Mono', monospace;
-    font-size: 10px;
+    font-size: 9px;
     color: var(--muted);
-    margin-top: 8px;
-    min-height: 14px;
+    margin-top: 10px;
+    min-height: 12px;
     letter-spacing: 1px;
   }
 
@@ -131,12 +158,20 @@
   <div class="inner">
     <div class="label">Wassertemperatur</div>
     <div class="location">Wörthsee</div>
+
     <div class="temp-row">
       <div class="temp-value" id="temp">--</div>
       <div class="temp-unit">°C</div>
     </div>
+
     <div class="divider"></div>
     <div class="meta" id="zeit">--</div>
+
+    <div class="chart-wrap">
+      <canvas id="chart"></canvas>
+    </div>
+    <div class="chart-labels" id="chart-labels"></div>
+
     <div class="status loading" id="status">Lade Daten...</div>
   </div>
 </div>
@@ -144,7 +179,6 @@
 <script>
 const TARGET = 'https://www.gkd.bayern.de/de/seen/wassertemperatur/isar/woerthsee-16651003/messwerte/tabelle';
 
-// Mehrere Proxies als Fallback-Kette
 const PROXIES = [
   url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
   url => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
@@ -163,13 +197,112 @@ async function tryProxy(proxyFn, url) {
   }
 }
 
-function parseTemp(html) {
-  const matches = [...html.matchAll(/<td[^>]*>\s*(\d{2}\.\d{2}\.\d{4}\s+\d{2}:\d{2})\s*<\/td>\s*<td[^>]*>\s*([\d,]+)\s*<\/td>/g)];
-  if (matches.length > 0) return { zeit: matches[0][1].trim(), wert: matches[0][2].trim() };
-  const simple = html.match(/(\d{2}\.\d{2}\.\d{4} \d{2}:\d{2})[\s\S]{0,50}?([\d]+,[\d]+)/);
-  if (simple) return { zeit: simple[1], wert: simple[2] };
-  return null;
+function parseAllRows(html) {
+  const rows = [];
+  const re = /<td[^>]*>\s*(\d{2}\.\d{2}\.\d{4})\s+(\d{2}:\d{2})\s*<\/td>\s*<td[^>]*>\s*([\d,]+)\s*<\/td>/g;
+  let m;
+  while ((m = re.exec(html)) !== null) {
+    const [d, mo, y] = m[1].split('.');
+    const [h, min]   = m[2].split(':');
+    const ts = new Date(+y, +mo-1, +d, +h, +min).getTime();
+    const val = parseFloat(m[3].replace(',', '.'));
+    rows.push({ ts, val, dateStr: m[1] });
+  }
+  return rows;
 }
+
+function dailyAverages(rows) {
+  const days = {};
+  const order = [];
+  for (const r of rows) {
+    const key = r.dateStr;
+    if (!days[key]) { days[key] = []; order.push(key); }
+    days[key].push(r.val);
+  }
+  return order.map(key => ({
+    label: key.slice(0, 5), // "14.05"
+    avg: days[key].reduce((a, b) => a + b, 0) / days[key].length
+  }));
+}
+
+function drawChart(dailyData, currentVal) {
+  const canvas = document.getElementById('chart');
+  const wrap   = canvas.parentElement;
+  const W = wrap.clientWidth  || 440;
+  const H = wrap.clientHeight || 120;
+  canvas.width  = Math.round(W * devicePixelRatio);
+  canvas.height = Math.round(H * devicePixelRatio);
+  const ctx = canvas.getContext('2d');
+  ctx.scale(devicePixelRatio, devicePixelRatio);
+
+  const vals = dailyData.map(d => d.avg);
+  vals[vals.length - 1] = currentVal; // letzter Punkt = Echtzeit
+
+  const minV = Math.min(...vals) - 0.8;
+  const maxV = Math.max(...vals) + 0.8;
+
+  const pad = { top: 18, right: 16, bottom: 6, left: 16 };
+  const cW = W - pad.left - pad.right;
+  const cH = H - pad.top  - pad.bottom;
+
+  const toX = i => pad.left + (i / (vals.length - 1)) * cW;
+  const toY = v => pad.top + cH - ((v - minV) / (maxV - minV)) * cH;
+
+  const points = vals.map((v, i) => ({ x: toX(i), y: toY(v), v }));
+
+  // Gefüllte Fläche unter der Kurve
+  const grad = ctx.createLinearGradient(0, pad.top, 0, H);
+  grad.addColorStop(0, 'rgba(0,180,216,0.20)');
+  grad.addColorStop(1, 'rgba(0,180,216,0)');
+
+  ctx.beginPath();
+  ctx.moveTo(points[0].x, toY(minV));
+  points.forEach(p => ctx.lineTo(p.x, p.y));
+  ctx.lineTo(points[points.length - 1].x, toY(minV));
+  ctx.closePath();
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  // Hauptlinie
+  ctx.beginPath();
+  ctx.moveTo(points[0].x, points[0].y);
+  points.forEach(p => ctx.lineTo(p.x, p.y));
+  ctx.strokeStyle = '#00b4d8';
+  ctx.lineWidth = 1.5;
+  ctx.lineJoin = 'round';
+  ctx.stroke();
+
+  // Punkte + Wert-Labels
+  points.forEach((p, i) => {
+    const isLast = i === points.length - 1;
+
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, isLast ? 4.5 : 2.5, 0, Math.PI * 2);
+    ctx.fillStyle = '#080c10';
+    ctx.fill();
+    ctx.strokeStyle = isLast ? '#00b4d8' : '#0077a8';
+    ctx.lineWidth = isLast ? 2 : 1.5;
+    if (isLast) { ctx.shadowBlur = 10; ctx.shadowColor = '#00b4d8'; }
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // Wert oben
+    const label = p.v.toFixed(1).replace('.', ',') + '°';
+    ctx.font = `${isLast ? 10 : 9}px "Share Tech Mono", monospace`;
+    ctx.fillStyle = isLast ? '#e8f4f8' : '#0077a8';
+    ctx.textAlign = 'center';
+    ctx.fillText(label, p.x, p.y - 9);
+  });
+
+  // X-Achsen Labels
+  const labelsEl = document.getElementById('chart-labels');
+  labelsEl.innerHTML = dailyData.map((d, i) => {
+    const isLast = i === dailyData.length - 1;
+    return `<span style="${isLast ? 'color:#00b4d8' : ''}">${isLast ? 'HEUTE' : d.label}</span>`;
+  }).join('');
+}
+
+let lastRows = null;
 
 async function fetchTemp() {
   const statusEl = document.getElementById('status');
@@ -184,16 +317,32 @@ async function fetchTemp() {
   for (const proxyFn of PROXIES) {
     try {
       const html = await tryProxy(proxyFn, TARGET);
-      const result = parseTemp(html);
-      if (result) {
-        tempEl.textContent = result.wert;
-        zeitEl.textContent = 'MESSUNG ' + result.zeit + ' UHR';
-        statusEl.className = 'status';
-        statusEl.textContent = 'GKD Bayern · ' + new Date().toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'}) + ' Uhr';
-        return;
-      } else {
-        throw new Error('Kein Messwert im HTML');
-      }
+      const rows = parseAllRows(html);
+
+      if (rows.length === 0) throw new Error('Keine Messwerte');
+
+      lastRows = rows;
+
+      const latest = rows[0];
+      const currentVal = latest.val;
+      const d = new Date(latest.ts);
+      const zeitStr = d.toLocaleString('de-DE', {
+        day:'2-digit', month:'2-digit', year:'numeric',
+        hour:'2-digit', minute:'2-digit'
+      });
+
+      tempEl.textContent = currentVal.toFixed(1).replace('.', ',');
+      zeitEl.textContent = 'MESSUNG ' + zeitStr + ' UHR';
+
+      const daily = dailyAverages(rows);
+      const last5 = daily.slice(0, 5).reverse(); // älteste → neueste
+
+      drawChart(last5, currentVal);
+
+      statusEl.className = 'status';
+      statusEl.textContent = 'GKD Bayern · ' + new Date().toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'}) + ' Uhr';
+      return;
+
     } catch (err) {
       lastError = err;
     }
@@ -206,6 +355,12 @@ async function fetchTemp() {
 
 fetchTemp();
 setInterval(fetchTemp, 10 * 60 * 1000);
+
+let resizeTimer;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(fetchTemp, 300);
+});
 </script>
 </body>
 </html>
