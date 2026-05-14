@@ -6,7 +6,7 @@
 <title>Wörthsee Temperatur</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@300;600&display=swap');
- 
+
   :root {
     --bg: #080c10;
     --blue: #00b4d8;
@@ -15,9 +15,9 @@
     --muted: #3a5060;
     --glow: 0 0 18px rgba(0,180,216,0.45);
   }
- 
+
   * { margin: 0; padding: 0; box-sizing: border-box; }
- 
+
   body {
     background: var(--bg);
     display: flex;
@@ -26,20 +26,20 @@
     min-height: 100vh;
     font-family: 'Rajdhani', sans-serif;
   }
- 
+
   .widget {
     position: relative;
-    padding: 32px 40px 28px;
+    padding: clamp(16px, 4vw, 40px) clamp(20px, 5vw, 50px);
     text-align: center;
-    width: 520px;
+    width: 100%;
   }
- 
+
   .c { position: absolute; width: 18px; height: 18px; border-color: var(--blue); border-style: solid; }
   .c-tl { top: 0; left: 0;  border-width: 2px 0 0 2px; }
   .c-tr { top: 0; right: 0; border-width: 2px 2px 0 0; }
   .c-bl { bottom: 0; left: 0;  border-width: 0 0 2px 2px; }
   .c-br { bottom: 0; right: 0; border-width: 0 2px 2px 0; }
- 
+
   .label {
     font-family: 'Share Tech Mono', monospace;
     font-size: 10px;
@@ -48,16 +48,16 @@
     text-transform: uppercase;
     margin-bottom: 4px;
   }
- 
+
   .location {
-    font-size: 26px;
+    font-size: clamp(16px, 3.5vw, 28px);
     font-weight: 600;
     letter-spacing: 2px;
     color: var(--white);
     margin-bottom: 14px;
     line-height: 1;
   }
- 
+
   .temp-row {
     display: flex;
     align-items: baseline;
@@ -65,31 +65,31 @@
     gap: 4px;
     margin-bottom: 4px;
   }
- 
+
   .temp-value {
     font-family: 'Share Tech Mono', monospace;
-    font-size: 68px;
+    font-size: clamp(40px, 10vw, 80px);
     color: var(--blue);
     text-shadow: var(--glow);
     line-height: 1;
     letter-spacing: -2px;
   }
- 
+
   .temp-unit {
     font-family: 'Share Tech Mono', monospace;
-    font-size: 26px;
+    font-size: clamp(16px, 3.5vw, 28px);
     color: var(--blue-dim);
     align-self: flex-start;
     margin-top: 10px;
   }
- 
+
   .divider {
     width: 60px;
     height: 1px;
     background: linear-gradient(90deg, transparent, var(--blue), transparent);
     margin: 12px auto;
   }
- 
+
   .meta {
     font-family: 'Share Tech Mono', monospace;
     font-size: 10px;
@@ -97,34 +97,34 @@
     letter-spacing: 2px;
     margin-bottom: 20px;
   }
- 
+
   .chart-wrap {
     position: relative;
     width: 100%;
-    height: 120px;
+    height: clamp(80px, 15vw, 160px);
     margin-bottom: 4px;
   }
- 
+
   canvas {
     display: block;
     width: 100% !important;
     height: 100% !important;
   }
- 
+
   .chart-labels {
     display: flex;
     justify-content: space-between;
     padding: 0 2px;
     margin-top: 4px;
   }
- 
+
   .chart-labels span {
     font-family: 'Share Tech Mono', monospace;
     font-size: 9px;
     color: var(--muted);
     letter-spacing: 1px;
   }
- 
+
   .status {
     font-family: 'Share Tech Mono', monospace;
     font-size: 9px;
@@ -133,9 +133,9 @@
     min-height: 12px;
     letter-spacing: 1px;
   }
- 
+
   .status.error { color: #e05050; }
- 
+
   @keyframes pulse {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.3; }
@@ -149,35 +149,35 @@
   <div class="c c-tr"></div>
   <div class="c c-bl"></div>
   <div class="c c-br"></div>
- 
+
   <div class="label">Wassertemperatur</div>
   <div class="location">Wörthsee</div>
- 
+
   <div class="temp-row">
     <div class="temp-value" id="temp">--</div>
     <div class="temp-unit">°C</div>
   </div>
- 
+
   <div class="divider"></div>
   <div class="meta" id="zeit">--</div>
- 
+
   <div class="chart-wrap">
     <canvas id="chart"></canvas>
   </div>
   <div class="chart-labels" id="chart-labels"></div>
- 
+
   <div class="status loading" id="status">Lade Daten...</div>
 </div>
- 
+
 <script>
 const TARGET = 'https://www.gkd.bayern.de/de/seen/wassertemperatur/isar/woerthsee-16651003/messwerte/tabelle';
- 
+
 const PROXIES = [
   url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
   url => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
   url => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
 ];
- 
+
 async function tryProxy(proxyFn, url) {
   const res = await fetch(proxyFn(url), { signal: AbortSignal.timeout(8000) });
   if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -189,7 +189,7 @@ async function tryProxy(proxyFn, url) {
     return text;
   }
 }
- 
+
 function parseAllRows(html) {
   const rows = [];
   const re = /<td[^>]*>\s*(\d{2}\.\d{2}\.\d{4})\s+(\d{2}:\d{2})\s*<\/td>\s*<td[^>]*>\s*([\d,]+)\s*<\/td>/g;
@@ -203,7 +203,7 @@ function parseAllRows(html) {
   }
   return rows;
 }
- 
+
 // Tageshöchstwert pro Tag
 function dailyMax(rows) {
   const days = {};
@@ -218,7 +218,7 @@ function dailyMax(rows) {
     max: days[key]
   }));
 }
- 
+
 function drawChart(dailyData, currentVal) {
   const canvas = document.getElementById('chart');
   const wrap   = canvas.parentElement;
@@ -228,28 +228,28 @@ function drawChart(dailyData, currentVal) {
   canvas.height = Math.round(H * devicePixelRatio);
   const ctx = canvas.getContext('2d');
   ctx.scale(devicePixelRatio, devicePixelRatio);
- 
+
   const vals = dailyData.map(d => d.max);
   // Letzter Punkt = aktueller Echtzeit-Messwert (nicht Tageshoch, da Tag noch läuft)
   vals[vals.length - 1] = currentVal;
- 
+
   const minV = Math.min(...vals) - 0.8;
   const maxV = Math.max(...vals) + 0.8;
- 
+
   const pad = { top: 18, right: 16, bottom: 6, left: 16 };
   const cW = W - pad.left - pad.right;
   const cH = H - pad.top  - pad.bottom;
- 
+
   const toX = i => pad.left + (i / (vals.length - 1)) * cW;
   const toY = v => pad.top + cH - ((v - minV) / (maxV - minV)) * cH;
- 
+
   const points = vals.map((v, i) => ({ x: toX(i), y: toY(v), v }));
- 
+
   // Fläche
   const grad = ctx.createLinearGradient(0, pad.top, 0, H);
   grad.addColorStop(0, 'rgba(0,180,216,0.20)');
   grad.addColorStop(1, 'rgba(0,180,216,0)');
- 
+
   ctx.beginPath();
   ctx.moveTo(points[0].x, toY(minV));
   points.forEach(p => ctx.lineTo(p.x, p.y));
@@ -257,7 +257,7 @@ function drawChart(dailyData, currentVal) {
   ctx.closePath();
   ctx.fillStyle = grad;
   ctx.fill();
- 
+
   // Linie
   ctx.beginPath();
   ctx.moveTo(points[0].x, points[0].y);
@@ -266,11 +266,11 @@ function drawChart(dailyData, currentVal) {
   ctx.lineWidth = 1.5;
   ctx.lineJoin = 'round';
   ctx.stroke();
- 
+
   // Punkte + Labels
   points.forEach((p, i) => {
     const isLast = i === points.length - 1;
- 
+
     ctx.beginPath();
     ctx.arc(p.x, p.y, isLast ? 4.5 : 2.5, 0, Math.PI * 2);
     ctx.fillStyle = '#080c10';
@@ -280,14 +280,14 @@ function drawChart(dailyData, currentVal) {
     if (isLast) { ctx.shadowBlur = 10; ctx.shadowColor = '#00b4d8'; }
     ctx.stroke();
     ctx.shadowBlur = 0;
- 
+
     const label = p.v.toFixed(1).replace('.', ',') + '°';
     ctx.font = `${isLast ? 10 : 9}px "Share Tech Mono", monospace`;
     ctx.fillStyle = isLast ? '#e8f4f8' : '#0077a8';
     ctx.textAlign = 'center';
     ctx.fillText(label, p.x, p.y - 9);
   });
- 
+
   // X-Labels
   const labelsEl = document.getElementById('chart-labels');
   labelsEl.innerHTML = dailyData.map((d, i) => {
@@ -295,23 +295,23 @@ function drawChart(dailyData, currentVal) {
     return `<span style="${isLast ? 'color:#00b4d8' : ''}">${isLast ? 'HEUTE' : d.label}</span>`;
   }).join('');
 }
- 
+
 async function fetchTemp() {
   const statusEl = document.getElementById('status');
   const tempEl   = document.getElementById('temp');
   const zeitEl   = document.getElementById('zeit');
- 
+
   statusEl.className = 'status loading';
   statusEl.textContent = 'Lade Daten...';
- 
+
   let lastError = null;
- 
+
   for (const proxyFn of PROXIES) {
     try {
       const html = await tryProxy(proxyFn, TARGET);
       const rows = parseAllRows(html);
       if (rows.length === 0) throw new Error('Keine Messwerte');
- 
+
       // Aktuellster Wert
       const latest = rows[0];
       const currentVal = latest.val;
@@ -320,32 +320,32 @@ async function fetchTemp() {
         day:'2-digit', month:'2-digit', year:'numeric',
         hour:'2-digit', minute:'2-digit'
       });
- 
+
       tempEl.textContent = currentVal.toFixed(1).replace('.', ',');
       zeitEl.textContent = 'MESSUNG ' + zeitStr + ' UHR';
- 
+
       // Tageshöchstwerte, letzten 5 Tage, älteste → neueste
       const daily = dailyMax(rows);
       const last5 = daily.slice(0, 7).reverse();
       drawChart(last5, currentVal);
- 
+
       statusEl.className = 'status';
       statusEl.textContent = 'GKD Bayern · ' + new Date().toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'}) + ' Uhr';
       return;
- 
+
     } catch (err) {
       lastError = err;
     }
   }
- 
+
   statusEl.className = 'status error';
   statusEl.textContent = 'Fehler · ' + new Date().toLocaleTimeString('de-DE') + ' · Retry in 15min';
   console.error('Alle Proxies fehlgeschlagen:', lastError);
 }
- 
+
 fetchTemp();
 setInterval(fetchTemp, 15 * 60 * 1000); // alle 15 Minuten — synchron mit GKD Bayern
- 
+
 let resizeTimer;
 window.addEventListener('resize', () => {
   clearTimeout(resizeTimer);
