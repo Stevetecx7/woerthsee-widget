@@ -5,15 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Wörthsee Temperatur</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@300;600&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@300;700&display=swap');
 
   :root {
-    --bg: #080c10;
-    --blue: #00b4d8;
-    --blue-dim: #0077a8;
-    --white: #e8f4f8;
-    --muted: #3a5060;
-    --glow: 0 0 18px rgba(0,180,216,0.45);
+    --bg: #000000;
+    --blue: #00d4ff;
+    --white: #ffffff;
+    --muted: #7ab8cc;
+    --glow: 0 0 24px rgba(0,212,255,0.7);
   }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -29,25 +28,25 @@
 
   .widget {
     width: 100%;
-    padding: clamp(16px, 4vw, 40px) clamp(20px, 5vw, 50px);
+    padding: clamp(12px, 3vw, 32px) clamp(16px, 4vw, 40px);
     text-align: center;
   }
 
   .label {
     font-family: 'Share Tech Mono', monospace;
-    font-size: 10px;
-    letter-spacing: 4px;
-    color: var(--blue-dim);
+    font-size: clamp(9px, 1.4vw, 13px);
+    letter-spacing: 5px;
+    color: var(--muted);
     text-transform: uppercase;
-    margin-bottom: 4px;
+    margin-bottom: 2px;
   }
 
   .location {
-    font-size: clamp(16px, 3.5vw, 28px);
-    font-weight: 600;
+    font-size: clamp(22px, 5vw, 42px);
+    font-weight: 700;
     letter-spacing: 2px;
     color: var(--white);
-    margin-bottom: 14px;
+    margin-bottom: 8px;
     line-height: 1;
   }
 
@@ -55,13 +54,13 @@
     display: flex;
     align-items: baseline;
     justify-content: center;
-    gap: 4px;
-    margin-bottom: 4px;
+    gap: 2px;
+    margin-bottom: 2px;
   }
 
   .temp-value {
     font-family: 'Share Tech Mono', monospace;
-    font-size: clamp(40px, 10vw, 80px);
+    font-size: clamp(56px, 14vw, 110px);
     color: var(--blue);
     text-shadow: var(--glow);
     line-height: 1;
@@ -70,31 +69,31 @@
 
   .temp-unit {
     font-family: 'Share Tech Mono', monospace;
-    font-size: clamp(16px, 3.5vw, 28px);
-    color: var(--blue-dim);
+    font-size: clamp(22px, 5vw, 40px);
+    color: var(--muted);
     align-self: flex-start;
-    margin-top: 10px;
+    margin-top: 12px;
   }
 
   .divider {
-    width: 60px;
-    height: 1px;
+    width: 80px;
+    height: 2px;
     background: linear-gradient(90deg, transparent, var(--blue), transparent);
-    margin: 12px auto;
+    margin: 8px auto;
   }
 
   .meta {
     font-family: 'Share Tech Mono', monospace;
-    font-size: 10px;
+    font-size: clamp(9px, 1.4vw, 12px);
     color: var(--muted);
     letter-spacing: 2px;
-    margin-bottom: 20px;
+    margin-bottom: 14px;
   }
 
   .chart-wrap {
     position: relative;
     width: 100%;
-    height: clamp(80px, 15vw, 160px);
+    height: clamp(90px, 16vw, 150px);
     margin-bottom: 4px;
   }
 
@@ -107,22 +106,22 @@
   .chart-labels {
     display: flex;
     justify-content: space-between;
-    padding: 0 2px;
-    margin-top: 4px;
+    padding: 0 4px;
+    margin-top: 6px;
   }
 
   .chart-labels span {
     font-family: 'Share Tech Mono', monospace;
-    font-size: 9px;
+    font-size: clamp(9px, 1.5vw, 13px);
     color: var(--muted);
     letter-spacing: 1px;
   }
 
   .status {
     font-family: 'Share Tech Mono', monospace;
-    font-size: 9px;
-    color: var(--muted);
-    margin-top: 10px;
+    font-size: clamp(8px, 1.2vw, 11px);
+    color: #3a6070;
+    margin-top: 8px;
     min-height: 12px;
     letter-spacing: 1px;
   }
@@ -133,7 +132,7 @@
     0%, 100% { opacity: 1; }
     50% { opacity: 0.3; }
   }
-  .loading { animation: pulse 1.2s ease-in-out infinite; color: var(--blue-dim) !important; }
+  .loading { animation: pulse 1.2s ease-in-out infinite; color: var(--muted) !important; }
 </style>
 </head>
 <body>
@@ -158,13 +157,13 @@
 </div>
 
 <script>
-const TARGET = 'https://www.gkd.bayern.de/de/seen/wassertemperatur/isar/woerthsee-16651003/messwerte/tabelle';
-
 const PROXIES = [
   url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
   url => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
   url => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
 ];
+
+const TARGET = 'https://www.gkd.bayern.de/de/seen/wassertemperatur/isar/woerthsee-16651003/messwerte/tabelle';
 
 async function tryProxy(proxyFn, url) {
   const res = await fetch(proxyFn(url), { signal: AbortSignal.timeout(8000) });
@@ -184,7 +183,7 @@ function parseAllRows(html) {
   let m;
   while ((m = re.exec(html)) !== null) {
     const [d, mo, y] = m[1].split('.');
-    const [h, min]   = m[2].split(':');
+    const [h, min] = m[2].split(':');
     const ts = new Date(+y, +mo-1, +d, +h, +min).getTime();
     const val = parseFloat(m[3].replace(',', '.'));
     rows.push({ ts, val, dateStr: m[1] });
@@ -200,18 +199,15 @@ function dailyMax(rows) {
     if (!days[key]) { days[key] = -Infinity; order.push(key); }
     if (r.val > days[key]) days[key] = r.val;
   }
-  return order.map(key => ({
-    label: key.slice(0, 5),
-    max: days[key]
-  }));
+  return order.map(key => ({ label: key.slice(0, 5), max: days[key] }));
 }
 
 function drawChart(dailyData, currentVal) {
   const canvas = document.getElementById('chart');
-  const wrap   = canvas.parentElement;
-  const W = wrap.clientWidth  || 440;
+  const wrap = canvas.parentElement;
+  const W = wrap.clientWidth || 440;
   const H = wrap.clientHeight || 120;
-  canvas.width  = Math.round(W * devicePixelRatio);
+  canvas.width = Math.round(W * devicePixelRatio);
   canvas.height = Math.round(H * devicePixelRatio);
   const ctx = canvas.getContext('2d');
   ctx.scale(devicePixelRatio, devicePixelRatio);
@@ -219,12 +215,12 @@ function drawChart(dailyData, currentVal) {
   const vals = dailyData.map(d => d.max);
   vals[vals.length - 1] = currentVal;
 
-  const minV = Math.min(...vals) - 0.8;
-  const maxV = Math.max(...vals) + 0.8;
+  const minV = Math.min(...vals) - 0.5;
+  const maxV = Math.max(...vals) + 1.2;
 
-  const pad = { top: 18, right: 16, bottom: 6, left: 16 };
+  const pad = { top: 22, right: 16, bottom: 6, left: 16 };
   const cW = W - pad.left - pad.right;
-  const cH = H - pad.top  - pad.bottom;
+  const cH = H - pad.top - pad.bottom;
 
   const toX = i => pad.left + (i / (vals.length - 1)) * cW;
   const toY = v => pad.top + cH - ((v - minV) / (maxV - minV)) * cH;
@@ -232,9 +228,8 @@ function drawChart(dailyData, currentVal) {
   const points = vals.map((v, i) => ({ x: toX(i), y: toY(v), v }));
 
   const grad = ctx.createLinearGradient(0, pad.top, 0, H);
-  grad.addColorStop(0, 'rgba(0,180,216,0.20)');
-  grad.addColorStop(1, 'rgba(0,180,216,0)');
-
+  grad.addColorStop(0, 'rgba(0,212,255,0.30)');
+  grad.addColorStop(1, 'rgba(0,212,255,0.02)');
   ctx.beginPath();
   ctx.moveTo(points[0].x, toY(minV));
   points.forEach(p => ctx.lineTo(p.x, p.y));
@@ -246,48 +241,46 @@ function drawChart(dailyData, currentVal) {
   ctx.beginPath();
   ctx.moveTo(points[0].x, points[0].y);
   points.forEach(p => ctx.lineTo(p.x, p.y));
-  ctx.strokeStyle = '#00b4d8';
-  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = '#00d4ff';
+  ctx.lineWidth = 2.5;
   ctx.lineJoin = 'round';
   ctx.stroke();
 
   points.forEach((p, i) => {
     const isLast = i === points.length - 1;
-
     ctx.beginPath();
-    ctx.arc(p.x, p.y, isLast ? 4.5 : 2.5, 0, Math.PI * 2);
-    ctx.fillStyle = '#080c10';
+    ctx.arc(p.x, p.y, isLast ? 6 : 3.5, 0, Math.PI * 2);
+    ctx.fillStyle = '#000000';
     ctx.fill();
-    ctx.strokeStyle = isLast ? '#00b4d8' : '#0077a8';
-    ctx.lineWidth = isLast ? 2 : 1.5;
-    if (isLast) { ctx.shadowBlur = 10; ctx.shadowColor = '#00b4d8'; }
+    ctx.strokeStyle = isLast ? '#00d4ff' : '#0099bb';
+    ctx.lineWidth = isLast ? 2.5 : 1.5;
+    if (isLast) { ctx.shadowBlur = 12; ctx.shadowColor = '#00d4ff'; }
     ctx.stroke();
     ctx.shadowBlur = 0;
 
     const label = p.v.toFixed(1).replace('.', ',') + '°';
-    ctx.font = `${isLast ? 10 : 9}px "Share Tech Mono", monospace`;
-    ctx.fillStyle = isLast ? '#e8f4f8' : '#0077a8';
+    ctx.font = `bold ${isLast ? 13 : 11}px "Share Tech Mono", monospace`;
+    ctx.fillStyle = isLast ? '#ffffff' : '#7ab8cc';
     ctx.textAlign = 'center';
-    ctx.fillText(label, p.x, p.y - 9);
+    ctx.fillText(label, p.x, p.y - 10);
   });
 
   const labelsEl = document.getElementById('chart-labels');
   labelsEl.innerHTML = dailyData.map((d, i) => {
     const isLast = i === dailyData.length - 1;
-    return `<span style="${isLast ? 'color:#00b4d8' : ''}">${isLast ? 'HEUTE' : d.label}</span>`;
+    return `<span style="${isLast ? 'color:#00d4ff;font-weight:bold' : 'color:#7ab8cc'}">${isLast ? 'HEUTE' : d.label}</span>`;
   }).join('');
 }
 
 async function fetchTemp() {
   const statusEl = document.getElementById('status');
-  const tempEl   = document.getElementById('temp');
-  const zeitEl   = document.getElementById('zeit');
+  const tempEl = document.getElementById('temp');
+  const zeitEl = document.getElementById('zeit');
 
   statusEl.className = 'status loading';
   statusEl.textContent = 'Lade Daten...';
 
   let lastError = null;
-
   for (const proxyFn of PROXIES) {
     try {
       const html = await tryProxy(proxyFn, TARGET);
@@ -298,8 +291,8 @@ async function fetchTemp() {
       const currentVal = latest.val;
       const d = new Date(latest.ts);
       const zeitStr = d.toLocaleString('de-DE', {
-        day:'2-digit', month:'2-digit', year:'numeric',
-        hour:'2-digit', minute:'2-digit'
+        day: '2-digit', month: '2-digit', year: 'numeric',
+        hour: '2-digit', minute: '2-digit'
       });
 
       tempEl.textContent = currentVal.toFixed(1).replace('.', ',');
@@ -310,9 +303,8 @@ async function fetchTemp() {
       drawChart(last7, currentVal);
 
       statusEl.className = 'status';
-      statusEl.textContent = 'GKD Bayern · ' + new Date().toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'}) + ' Uhr';
+      statusEl.textContent = 'GKD Bayern · ' + new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) + ' Uhr';
       return;
-
     } catch (err) {
       lastError = err;
     }
@@ -320,7 +312,6 @@ async function fetchTemp() {
 
   statusEl.className = 'status error';
   statusEl.textContent = 'Fehler · ' + new Date().toLocaleTimeString('de-DE') + ' · Retry in 15min';
-  console.error('Alle Proxies fehlgeschlagen:', lastError);
 }
 
 fetchTemp();
