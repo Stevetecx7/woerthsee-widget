@@ -28,17 +28,10 @@
   }
 
   .widget {
-    position: relative;
+    width: 100%;
     padding: clamp(16px, 4vw, 40px) clamp(20px, 5vw, 50px);
     text-align: center;
-    width: 100%;
   }
-
-  .c { position: absolute; width: 18px; height: 18px; border-color: var(--blue); border-style: solid; }
-  .c-tl { top: 0; left: 0;  border-width: 2px 0 0 2px; }
-  .c-tr { top: 0; right: 0; border-width: 2px 2px 0 0; }
-  .c-bl { bottom: 0; left: 0;  border-width: 0 0 2px 2px; }
-  .c-br { bottom: 0; right: 0; border-width: 0 2px 2px 0; }
 
   .label {
     font-family: 'Share Tech Mono', monospace;
@@ -145,11 +138,6 @@
 </head>
 <body>
 <div class="widget">
-  <div class="c c-tl"></div>
-  <div class="c c-tr"></div>
-  <div class="c c-bl"></div>
-  <div class="c c-br"></div>
-
   <div class="label">Wassertemperatur</div>
   <div class="location">Wörthsee</div>
 
@@ -204,7 +192,6 @@ function parseAllRows(html) {
   return rows;
 }
 
-// Tageshöchstwert pro Tag
 function dailyMax(rows) {
   const days = {};
   const order = [];
@@ -214,7 +201,7 @@ function dailyMax(rows) {
     if (r.val > days[key]) days[key] = r.val;
   }
   return order.map(key => ({
-    label: key.slice(0, 5), // "14.05"
+    label: key.slice(0, 5),
     max: days[key]
   }));
 }
@@ -230,7 +217,6 @@ function drawChart(dailyData, currentVal) {
   ctx.scale(devicePixelRatio, devicePixelRatio);
 
   const vals = dailyData.map(d => d.max);
-  // Letzter Punkt = aktueller Echtzeit-Messwert (nicht Tageshoch, da Tag noch läuft)
   vals[vals.length - 1] = currentVal;
 
   const minV = Math.min(...vals) - 0.8;
@@ -245,7 +231,6 @@ function drawChart(dailyData, currentVal) {
 
   const points = vals.map((v, i) => ({ x: toX(i), y: toY(v), v }));
 
-  // Fläche
   const grad = ctx.createLinearGradient(0, pad.top, 0, H);
   grad.addColorStop(0, 'rgba(0,180,216,0.20)');
   grad.addColorStop(1, 'rgba(0,180,216,0)');
@@ -258,7 +243,6 @@ function drawChart(dailyData, currentVal) {
   ctx.fillStyle = grad;
   ctx.fill();
 
-  // Linie
   ctx.beginPath();
   ctx.moveTo(points[0].x, points[0].y);
   points.forEach(p => ctx.lineTo(p.x, p.y));
@@ -267,7 +251,6 @@ function drawChart(dailyData, currentVal) {
   ctx.lineJoin = 'round';
   ctx.stroke();
 
-  // Punkte + Labels
   points.forEach((p, i) => {
     const isLast = i === points.length - 1;
 
@@ -288,7 +271,6 @@ function drawChart(dailyData, currentVal) {
     ctx.fillText(label, p.x, p.y - 9);
   });
 
-  // X-Labels
   const labelsEl = document.getElementById('chart-labels');
   labelsEl.innerHTML = dailyData.map((d, i) => {
     const isLast = i === dailyData.length - 1;
@@ -312,7 +294,6 @@ async function fetchTemp() {
       const rows = parseAllRows(html);
       if (rows.length === 0) throw new Error('Keine Messwerte');
 
-      // Aktuellster Wert
       const latest = rows[0];
       const currentVal = latest.val;
       const d = new Date(latest.ts);
@@ -324,10 +305,9 @@ async function fetchTemp() {
       tempEl.textContent = currentVal.toFixed(1).replace('.', ',');
       zeitEl.textContent = 'MESSUNG ' + zeitStr + ' UHR';
 
-      // Tageshöchstwerte, letzten 5 Tage, älteste → neueste
       const daily = dailyMax(rows);
-      const last5 = daily.slice(0, 7).reverse();
-      drawChart(last5, currentVal);
+      const last7 = daily.slice(0, 7).reverse();
+      drawChart(last7, currentVal);
 
       statusEl.className = 'status';
       statusEl.textContent = 'GKD Bayern · ' + new Date().toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'}) + ' Uhr';
@@ -344,7 +324,7 @@ async function fetchTemp() {
 }
 
 fetchTemp();
-setInterval(fetchTemp, 15 * 60 * 1000); // alle 15 Minuten — synchron mit GKD Bayern
+setInterval(fetchTemp, 15 * 60 * 1000);
 
 let resizeTimer;
 window.addEventListener('resize', () => {
