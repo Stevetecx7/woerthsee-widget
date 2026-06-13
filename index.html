@@ -100,8 +100,8 @@ var PROXIES = [
   function(u) { return 'https://api.codetabs.com/v1/proxy?quest=' + u; }
 ];
 
-var dailyData = [];
-var proxyIndex = 0;
+var dailyData  = []; // Tagesmaxima für X-Achsen-Labels
+var rawPoints  = []; // Alle 15min-Messwerte für die Kurve
 
 function tryFetch(idx) {
   if (idx >= PROXIES.length) {
@@ -124,30 +124,22 @@ function tryFetch(idx) {
 }
 
 function parseHtml(html, proxyIdx) {
-  // Regex: Datum Zeit ... Temperatur
   var rows = [];
   var rx = /(\d{2}\.\d{2}\.\d{4})\s+(\d{2}:\d{2})[^<]*<[^>]*>[^<]*(\d+,\d+)/g;
   var m;
-  while ((m = rx.exec(html)) !== null) {
-    rows.push([m[1], m[2], m[3]]);
-  }
+  while ((m = rx.exec(html)) !== null) rows.push([m[1], m[2], m[3]]);
 
-  // Fallback: einfacherer Regex
   if (rows.length === 0) {
     var rx2 = /(\d{2}\.\d{2}\.\d{4})\s+(\d{2}:\d{2})[\s\S]{0,50}?(\d+,\d+)/g;
     while ((m = rx2.exec(html)) !== null) {
       rows.push([m[1], m[2], m[3]]);
-      if (rows.length > 200) break;
+      if (rows.length > 700) break;
     }
   }
 
-  if (rows.length === 0) {
-    // Letzter Versuch — nächster Proxy
-    tryFetch(proxyIdx + 1);
-    return;
-  }
+  if (rows.length === 0) { tryFetch(proxyIdx + 1); return; }
 
-  // Tagesmaximum berechnen
+  // Tagesmaximum für Labels
   var days = {};
   var order = [];
   for (var i = 0; i < rows.length; i++) {
@@ -157,28 +149,31 @@ function parseHtml(html, proxyIdx) {
     else if (val > days[d]) days[d] = val;
   }
 
-  var latestVal = parseFloat(rows[0][2].replace(',', '.'));
+  var latestVal  = parseFloat(rows[0][2].replace(',', '.'));
   var latestTime = rows[0][0] + ' ' + rows[0][1] + ' Uhr';
 
-  // Chart-Daten: letzte 7 Tage, heute = aktueller Wert
+  // Tageslabels (letzte 7 Tage)
   var chartDays = order.slice(0, 7).reverse();
   dailyData = [];
   for (var j = 0; j < chartDays.length; j++) {
     var k = chartDays[j];
     var isToday = (j === chartDays.length - 1);
-    dailyData.push({
-      label: k.substring(0, 5),
-      val:   isToday ? latestVal : days[k]
-    });
+    dailyData.push({ label: k.substring(0,5), val: isToday ? latestVal : days[k], date: k });
+  }
+
+  // Alle Rohdaten umkehren (älteste → neueste) für Chart-Kurve
+  rawPoints = [];
+  for (var r = rows.length - 1; r >= 0; r--) {
+    rawPoints.push(parseFloat(rows[r][2].replace(',', '.')));
   }
 
   // Anzeige
   document.getElementById('temp').textContent = latestVal.toFixed(1).replace('.', ',');
   document.getElementById('timeLine').textContent =
-    'Messung ' + latestTime.replace(' ', ' · ').toLowerCase().replace('uhr', 'Uhr');
+    'Messung ' + latestTime.replace(' ', ' \u00b7 ').toLowerCase().replace('uhr', 'Uhr');
   document.getElementById('status').className = 'status';
   document.getElementById('status').textContent =
-    'GKD Bayern · ' + new Date().toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'}) + ' Uhr';
+    'GKD Bayern \u00b7 ' + new Date().toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'}) + ' Uhr';
 
   drawChart();
   buildAxis();
@@ -194,61 +189,68 @@ function drawChart() {
   var ctx = canvas.getContext('2d');
   ctx.scale(devicePixelRatio, devicePixelRatio);
 
-  if (dailyData.length < 2) return;
+  if (rawPoints.length < 2) return;
 
-  var vals = dailyData.map(function(d){ return d.val; });
-  var minV = Math.min.apply(null, vals) - 0.5;
-  var maxV = Math.max.apply(null, vals) + 0.5;
-
-  var pad = {top:10, right:12, bottom:10, left:12};
-  var cW = W - pad.left - pad.right;
-  var cH = H - pad.top  - pad.bottom;
-  var toX = function(i){ return pad.left + (i / (dailyData.length-1)) * cW; };
-  var toY = function(v){ return pad.top + cH - ((v - minV) / (maxV - minV)) * cH; };
+  var minV = Math.min.apply(null, rawPoints) - 0.3;
+  var maxV = Math.max.apply(null, rawPoints) + 0.3;
+  var pad  = {top:18, right:12, bottom:8, left:12};
+  var cW   = W - pad.left - pad.right;
+  var cH   = H - pad.top  - pad.bottom;
+  var toX  = function(i){ return pad.left + (i / (rawPoints.length - 1)) * cW; };
+  var toY  = function(v){ return pad.top + cH - ((v - minV) / (maxV - minV)) * cH; };
 
   // Gradient fill
   var grad = ctx.createLinearGradient(0, pad.top, 0, H);
-  grad.addColorStop(0,   'rgba(0,212,255,0.35)');
+  grad.addColorStop(0,   'rgba(0,212,255,0.30)');
   grad.addColorStop(1,   'rgba(0,212,255,0)');
   ctx.beginPath();
-  ctx.moveTo(toX(0), toY(dailyData[0].val));
-  for (var i = 1; i < dailyData.length; i++) ctx.lineTo(toX(i), toY(dailyData[i].val));
-  ctx.lineTo(toX(dailyData.length-1), H);
+  ctx.moveTo(toX(0), toY(rawPoints[0]));
+  for (var i = 1; i < rawPoints.length; i++) ctx.lineTo(toX(i), toY(rawPoints[i]));
+  ctx.lineTo(toX(rawPoints.length - 1), H);
   ctx.lineTo(toX(0), H);
   ctx.closePath();
   ctx.fillStyle = grad;
   ctx.fill();
 
-  // Linie
+  // Kurve
   ctx.beginPath();
-  ctx.moveTo(toX(0), toY(dailyData[0].val));
-  for (var j = 1; j < dailyData.length; j++) ctx.lineTo(toX(j), toY(dailyData[j].val));
+  ctx.moveTo(toX(0), toY(rawPoints[0]));
+  for (var j = 1; j < rawPoints.length; j++) ctx.lineTo(toX(j), toY(rawPoints[j]));
   ctx.strokeStyle = '#00d4ff';
-  ctx.lineWidth = 2;
+  ctx.lineWidth = 1.5;
   ctx.lineJoin = 'round';
-  ctx.shadowBlur = 8; ctx.shadowColor = '#00d4ff';
+  ctx.shadowBlur = 6; ctx.shadowColor = '#00d4ff';
   ctx.stroke();
   ctx.shadowBlur = 0;
 
-  // Datenpunkte
-  for (var p = 0; p < dailyData.length; p++) {
-    var isLast = (p === dailyData.length - 1);
+  // Tagesmaxima als Marker + Label
+  for (var d = 0; d < dailyData.length; d++) {
+    var isToday = (d === dailyData.length - 1);
+    // X-Position: letzter Punkt des Tages
+    var daysFromEnd = dailyData.length - 1 - d;
+    var ptsPerDay   = Math.round(rawPoints.length / dailyData.length);
+    var ptIdx       = rawPoints.length - 1 - daysFromEnd * ptsPerDay;
+    ptIdx = Math.max(0, Math.min(rawPoints.length - 1, ptIdx));
+    var px = toX(ptIdx);
+    var py = toY(dailyData[d].val);
+
     ctx.beginPath();
-    ctx.arc(toX(p), toY(dailyData[p].val), isLast ? 5 : 3, 0, Math.PI * 2);
+    ctx.arc(px, py, isToday ? 5 : 3, 0, Math.PI * 2);
     ctx.fillStyle = '#000';
     ctx.fill();
-    ctx.strokeStyle = isLast ? '#00ff88' : '#00d4ff';
-    ctx.lineWidth = isLast ? 2.5 : 1.5;
-    ctx.shadowBlur = isLast ? 10 : 4;
-    ctx.shadowColor = isLast ? '#00ff88' : '#00d4ff';
+    ctx.strokeStyle = isToday ? '#00ff88' : '#00d4ff';
+    ctx.lineWidth   = isToday ? 2.5 : 1.5;
+    ctx.shadowBlur  = isToday ? 10 : 4;
+    ctx.shadowColor = isToday ? '#00ff88' : '#00d4ff';
     ctx.stroke();
     ctx.shadowBlur = 0;
-    // Temperatur-Label über Punkt
-    ctx.fillStyle = isLast ? '#00ff88' : '#7ab8cc';
-    ctx.font = 'bold ' + (isLast ? 11 : 9) + 'px Share Tech Mono, monospace';
+
+    // Temperatur über Punkt
+    ctx.fillStyle = isToday ? '#00ff88' : '#7ab8cc';
+    ctx.font = 'bold ' + (isToday ? 11 : 9) + 'px Share Tech Mono,monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'bottom';
-    ctx.fillText(dailyData[p].val.toFixed(1).replace('.',',') + '°', toX(p), toY(dailyData[p].val) - 4);
+    ctx.fillText(dailyData[d].val.toFixed(1).replace('.',',') + '\u00b0', px, py - 5);
   }
 }
 
