@@ -12,24 +12,52 @@
     --glow:0 0 30px rgba(0,212,255,0.8);
   }
   *{margin:0;padding:0;box-sizing:border-box;}
+  html, body {
+    height: 100%;
+    overflow: hidden;
+  }
   body{
     background:var(--bg);color:var(--white);font-family:'Rajdhani',sans-serif;
-    min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;
+    display:flex;align-items:center;justify-content:center;
+    padding:0;
   }
-  .widget{width:100%;max-width:600px;text-align:center;}
-  .label{font-family:'Share Tech Mono',monospace;font-size:clamp(9px,1.5vw,13px);letter-spacing:6px;color:var(--dim);text-transform:uppercase;margin-bottom:6px;font-weight:bold;}
-  .title{font-size:clamp(32px,8vw,64px);font-weight:900;color:var(--white);letter-spacing:2px;margin-bottom:16px;}
+  .widget{width:100%;text-align:center;transform-origin:center center;}
+  .label{
+    font-family:'Share Tech Mono',monospace;
+    font-size:clamp(9px,1.5vw,13px);letter-spacing:6px;
+    color:var(--dim);text-transform:uppercase;margin-bottom:6px;font-weight:bold;
+  }
+  .title{
+    font-size:clamp(32px,8vw,64px);font-weight:900;
+    color:var(--white);letter-spacing:2px;margin-bottom:16px;
+  }
   .temp-wrap{display:flex;align-items:flex-start;justify-content:center;gap:4px;margin-bottom:4px;}
-  .temp{font-family:'Share Tech Mono',monospace;font-size:clamp(72px,20vw,160px);font-weight:bold;color:var(--blue);text-shadow:var(--glow);line-height:1;letter-spacing:-4px;}
-  .deg{font-family:'Share Tech Mono',monospace;font-size:clamp(28px,7vw,56px);color:var(--muted);margin-top:clamp(12px,3vw,24px);font-weight:bold;}
-  .divider{width:clamp(80px,20vw,160px);height:2px;background:linear-gradient(90deg,transparent,var(--blue),transparent);margin:12px auto;}
-  .time-line{font-family:'Share Tech Mono',monospace;font-size:clamp(9px,1.5vw,12px);color:var(--dim);letter-spacing:4px;text-transform:uppercase;margin-bottom:20px;font-weight:bold;}
+  .temp{
+    font-family:'Share Tech Mono',monospace;
+    font-size:clamp(72px,18vw,140px);font-weight:bold;
+    color:var(--blue);text-shadow:var(--glow);line-height:1;letter-spacing:-4px;
+  }
+  .deg{
+    font-family:'Share Tech Mono',monospace;
+    font-size:clamp(28px,6vw,52px);color:var(--muted);
+    margin-top:clamp(12px,2.5vw,22px);font-weight:bold;
+  }
+  .divider{
+    width:clamp(80px,20vw,160px);height:2px;
+    background:linear-gradient(90deg,transparent,var(--blue),transparent);
+    margin:12px auto;
+  }
+  .time-line{
+    font-family:'Share Tech Mono',monospace;
+    font-size:clamp(9px,1.4vw,12px);color:var(--dim);
+    letter-spacing:4px;text-transform:uppercase;margin-bottom:16px;font-weight:bold;
+  }
   .chart-wrap{width:100%;height:clamp(100px,18vw,150px);margin-bottom:6px;}
   canvas{display:block;width:100%!important;height:100%!important;}
   .chart-axis{display:flex;justify-content:space-between;padding:0 6px;margin-bottom:4px;}
-  .chart-axis span{font-family:'Share Tech Mono',monospace;font-size:clamp(7px,1.2vw,10px);color:var(--dim);font-weight:bold;}
-  .chart-axis .today{color:var(--green);}
-  .status{font-family:'Share Tech Mono',monospace;font-size:clamp(8px,1.3vw,11px);color:var(--dim);margin-top:8px;letter-spacing:2px;}
+  .chart-axis span{font-family:'Share Tech Mono',monospace;font-size:clamp(8px,1.4vw,12px);color:var(--muted);font-weight:bold;letter-spacing:1px;}
+  .chart-axis .heute{color:var(--green);font-weight:bold;}
+  .status{font-family:'Share Tech Mono',monospace;font-size:clamp(8px,1.2vw,11px);color:var(--dim);margin-top:6px;letter-spacing:1px;}
   .status.error{color:#e05050;}
 </style>
 </head>
@@ -42,112 +70,34 @@
     <div class="deg">°C</div>
   </div>
   <div class="divider"></div>
-  <div class="time-line" id="timeLine">Lade Daten...</div>
+  <div class="time-line" id="zeit">--</div>
   <div class="chart-wrap"><canvas id="chart"></canvas></div>
-  <div class="chart-axis" id="chartAxis"></div>
-  <div class="status" id="status"></div>
+  <div class="chart-axis" id="chart-axis"></div>
+  <div class="status" id="status">Lade Daten...</div>
 </div>
 
 <script>
-var GKD_URL = 'https://www.gkd.bayern.de/de/seen/wassertemperatur/isar/woerthsee-16651003/messwerte/tabelle';
-var PROXIES = [
-  function(u){ return 'https://corsproxy.io/?' + encodeURIComponent(u); },
-  function(u){ return 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u); },
-  function(u){ return 'https://thingproxy.freeboard.io/fetch/' + u; },
-  function(u){ return 'https://api.codetabs.com/v1/proxy?quest=' + u; }
-];
+var API = '/data';
 
-// 7 Tagespunkte: [{label, val, today}]
-var chartData = [];
-
-function tryFetch(idx) {
-  if (idx >= PROXIES.length) { setError('Alle Proxies fehlgeschlagen'); return; }
-  var xhr = new XMLHttpRequest();
-  xhr.timeout = 12000;
-  xhr.open('GET', PROXIES[idx](GKD_URL), true);
-  xhr.onload = function() {
-    if (xhr.status === 200 && xhr.responseText.length > 500) {
-      if (!parseHtml(xhr.responseText)) tryFetch(idx + 1);
-    } else { tryFetch(idx + 1); }
-  };
-  xhr.onerror = xhr.ontimeout = function(){ tryFetch(idx + 1); };
-  xhr.send();
-}
-
-function parseHtml(html) {
-  var rows = [];
-  var rx = /(\d{2}\.\d{2}\.\d{4})\s+(\d{2}:\d{2})[\s\S]{0,80}?(\d+,\d+)/g;
-  var m;
-  while ((m = rx.exec(html)) !== null) {
-    rows.push({ d: m[1], v: parseFloat(m[3].replace(',','.')) });
-    if (rows.length > 800) break;
-  }
-  if (rows.length === 0) return false;
-
-  var latestVal  = rows[0].v;
-  var latestDate = rows[0].d;
-  var latestTime = rows[0].d + ' \u00b7 ' + (function(){ var r2 = /(\d{2}\.\d{2}\.\d{4})\s+(\d{2}:\d{2})/; var mm = html.match(r2); return mm ? mm[2] : '--'; })() + ' Uhr';
-
-  // Tagesmaximum
-  var dayMap = {}, dayOrder = [];
-  for (var i = 0; i < rows.length; i++) {
-    var d = rows[i].d;
-    if (!dayMap[d]) { dayMap[d] = rows[i].v; dayOrder.push(d); }
-    else if (rows[i].v > dayMap[d]) dayMap[d] = rows[i].v;
-  }
-
-  // Letzte 7 Tage, älteste zuerst
-  var last7 = dayOrder.slice(0, 7).reverse();
-  chartData = last7.map(function(d, i) {
-    var isToday = (d === latestDate);
-    var parts   = d.split('.');
-    return {
-      label: isToday ? 'HEUTE' : parts[0] + '.' + parts[1] + '.',
-      val:   isToday ? latestVal : dayMap[d],
-      today: isToday
-    };
-  });
-
-  document.getElementById('temp').textContent = latestVal.toFixed(1).replace('.', ',');
-  document.getElementById('timeLine').textContent = 'Messung ' + latestTime;
-  document.getElementById('status').className = 'status';
-  document.getElementById('status').textContent =
-    'GKD Bayern \u00b7 ' + new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}) + ' Uhr';
-
-  buildAxis();
-  drawChart();
-  return true;
-}
-
-function buildAxis() {
-  var ax = document.getElementById('chartAxis');
-  ax.innerHTML = '';
-  for (var i = 0; i < chartData.length; i++) {
-    var s = document.createElement('span');
-    s.textContent = chartData[i].label;
-    if (chartData[i].today) s.className = 'today';
-    ax.appendChild(s);
-  }
-}
-
-function drawChart() {
+function drawChart(dailyData, currentVal) {
   var canvas = document.getElementById('chart');
   var wrap   = canvas.parentElement;
-  var W = wrap.clientWidth  || 500;
+  var W = wrap.clientWidth  || 440;
   var H = wrap.clientHeight || 130;
   canvas.width  = Math.round(W * devicePixelRatio);
   canvas.height = Math.round(H * devicePixelRatio);
   var ctx = canvas.getContext('2d');
   ctx.scale(devicePixelRatio, devicePixelRatio);
-  if (chartData.length < 2) return;
 
-  var vals = chartData.map(function(d){ return d.val; });
+  var vals = dailyData.map(function(d){ return d.max; });
+  vals[vals.length - 1] = currentVal;
+
   var minV = Math.min.apply(null, vals) - 0.3;
   var maxV = Math.max.apply(null, vals) + 0.3;
   var pad  = { top: 22, right: 10, bottom: 6, left: 10 };
   var cW   = W - pad.left - pad.right;
   var cH   = H - pad.top  - pad.bottom;
-  var n    = chartData.length;
+  var n    = vals.length;
 
   var toX = function(i){ return pad.left + (i / (n - 1)) * cW; };
   var toY = function(v){ return pad.top + cH - ((v - minV) / (maxV - minV)) * cH; };
@@ -159,27 +109,22 @@ function drawChart() {
   ctx.beginPath();
   ctx.moveTo(toX(0), toY(vals[0]));
   for (var i = 1; i < n; i++) ctx.lineTo(toX(i), toY(vals[i]));
-  ctx.lineTo(toX(n-1), H);
-  ctx.lineTo(toX(0), H);
-  ctx.closePath();
-  ctx.fillStyle = grad;
-  ctx.fill();
+  ctx.lineTo(toX(n-1), H); ctx.lineTo(toX(0), H);
+  ctx.closePath(); ctx.fillStyle = grad; ctx.fill();
 
   // Linie
   ctx.beginPath();
   ctx.moveTo(toX(0), toY(vals[0]));
   for (var j = 1; j < n; j++) ctx.lineTo(toX(j), toY(vals[j]));
-  ctx.strokeStyle = '#00d4ff';
-  ctx.lineWidth   = 2;
-  ctx.lineJoin    = 'round';
-  ctx.shadowBlur  = 8; ctx.shadowColor = '#00d4ff';
-  ctx.stroke();
-  ctx.shadowBlur  = 0;
+  ctx.strokeStyle = '#00d4ff'; ctx.lineWidth = 2;
+  ctx.lineJoin = 'round';
+  ctx.shadowBlur = 8; ctx.shadowColor = '#00d4ff';
+  ctx.stroke(); ctx.shadowBlur = 0;
 
   // Punkte + Labels
   for (var p = 0; p < n; p++) {
     var px = toX(p), py = toY(vals[p]);
-    var isToday = chartData[p].today;
+    var isToday = (p === n - 1);
 
     ctx.beginPath();
     ctx.arc(px, py, isToday ? 5 : 3, 0, Math.PI * 2);
@@ -191,24 +136,91 @@ function drawChart() {
     ctx.stroke(); ctx.shadowBlur = 0;
 
     ctx.fillStyle    = isToday ? '#00ff88' : '#7ab8cc';
-    ctx.font         = 'bold ' + (isToday ? 11 : 9) + 'px Share Tech Mono,monospace';
-    ctx.textAlign    = 'center';
-    ctx.textBaseline = 'bottom';
+    ctx.font         = 'bold ' + (isToday ? 12 : 10) + 'px Share Tech Mono,monospace';
+    ctx.textAlign    = 'center'; ctx.textBaseline = 'bottom';
     if (isToday) { ctx.shadowBlur = 6; ctx.shadowColor = '#00ff88'; }
     ctx.fillText(vals[p].toFixed(1).replace('.',',') + '\u00b0', px, py - 5);
     ctx.shadowBlur = 0;
   }
+
+  // X-Achse
+  var ax = document.getElementById('chart-axis');
+  ax.innerHTML = '';
+  for (var d = 0; d < dailyData.length; d++) {
+    var s = document.createElement('span');
+    var isLast = (d === dailyData.length - 1);
+    s.textContent = isLast ? 'HEUTE' : dailyData[d].label;
+    if (isLast) s.className = 'heute';
+    ax.appendChild(s);
+  }
 }
 
-function setError(msg) {
-  document.getElementById('status').className = 'status error';
-  document.getElementById('status').textContent = 'Fehler \u00b7 Retry in 15min';
-  document.getElementById('timeLine').textContent = msg;
+function fetchTemp() {
+  var statusEl = document.getElementById('status');
+  var tempEl   = document.getElementById('temp');
+  var zeitEl   = document.getElementById('zeit');
+
+  var xhr = new XMLHttpRequest();
+  xhr.timeout = 8000;
+  xhr.open('GET', API, true);
+  xhr.onload = function() {
+    try {
+      var data = JSON.parse(xhr.responseText);
+      if (data.error) throw new Error(data.error);
+      tempEl.textContent = data.current.toFixed(1).replace('.', ',');
+      zeitEl.textContent = 'Messung ' + data.time.replace(' ', ' \u00b7 ') + ' Uhr';
+      drawChart(data.daily, data.current);
+      statusEl.className = 'status';
+      var now = new Date();
+      statusEl.textContent = 'GKD Bayern \u00b7 ' +
+        now.getHours().toString().padStart(2,'0') + ':' +
+        now.getMinutes().toString().padStart(2,'0') + ' Uhr';
+    } catch(e) {
+      statusEl.className = 'status error';
+      statusEl.textContent = 'Fehler \u00b7 Retry in 15min';
+    }
+    fitToScreen();
+  };
+  xhr.onerror = xhr.ontimeout = function() {
+    statusEl.className = 'status error';
+    statusEl.textContent = 'Fehler \u00b7 Retry in 15min';
+  };
+  xhr.send();
 }
 
-tryFetch(0);
-setInterval(function(){ tryFetch(0); }, 15 * 60 * 1000);
-window.addEventListener('resize', function(){ if (chartData.length) drawChart(); });
+// ── Fit-to-Screen ────────────────────────────────────────────────
+// Skaliert das gesamte Widget gleichm\u00e4\u00dfig, damit es IMMER exakt ins
+// Browserfenster passt \u2014 kein Scrollbalken mehr, egal wie klein/gro\u00df das
+// Fenster ist. Gleiches Prinzip wie im evcc-Widget.
+function fitToScreen() {
+  var widget = document.querySelector('.widget');
+  if (!widget) return;
+  widget.style.transform = 'none'; // zur\u00fccksetzen, um die echte (ungestauchte) Gr\u00f6\u00dfe zu messen
+  var natW = widget.scrollWidth;
+  var natH = widget.scrollHeight;
+  if (!natW || !natH) return;
+  var pad = 16; // kleiner Sicherheitsabstand zum Fensterrand
+  var availW = window.innerWidth  - pad;
+  var availH = window.innerHeight - pad;
+  var scale = Math.min(availW / natW, availH / natH, 1.4); // Obergrenze, damit es auf riesigen Screens nicht \u00fcberdimensioniert wird
+  if (!isFinite(scale) || scale <= 0) scale = 1;
+  widget.style.transform = 'scale(' + scale.toFixed(4) + ')';
+}
+
+fetchTemp();
+setInterval(fetchTemp, 15 * 60 * 1000);
+
+var rt;
+window.addEventListener('resize', function(){
+  clearTimeout(rt);
+  rt = setTimeout(function(){
+    fetchTemp(); // zeichnet den Chart in der neuen Gr\u00f6\u00dfe neu (ruft am Ende auch fitToScreen auf)
+  }, 300);
+});
+
+window.addEventListener('load', fitToScreen);
+setTimeout(fitToScreen, 500);
+setInterval(fitToScreen, 15000);
 </script>
 </body>
 </html>
