@@ -47,6 +47,12 @@
     background:linear-gradient(90deg,transparent,var(--blue),transparent);
     margin:12px auto;
   }
+  .wave-wrap{
+    width:clamp(160px,40vw,320px);
+    height:clamp(16px,3vw,26px);
+    margin:8px auto;
+  }
+  .wave-wrap canvas{display:block;width:100%!important;height:100%!important;}
   .time-line{
     font-family:'Share Tech Mono',monospace;
     font-size:clamp(9px,1.4vw,12px);color:var(--dim);
@@ -69,7 +75,7 @@
     <div class="temp" id="temp">--</div>
     <div class="deg">°C</div>
   </div>
-  <div class="divider"></div>
+  <div class="wave-wrap"><canvas id="wave"></canvas></div>
   <div class="time-line" id="zeit">--</div>
   <div class="chart-wrap"><canvas id="chart"></canvas></div>
   <div class="chart-axis" id="chart-axis"></div>
@@ -120,56 +126,92 @@ function aggregateDailyMax(rows) {
   });
 }
 
-function drawChart(dailyData, currentVal) {
+function drawChart(dailyData, currentVal, animT, updateAxis) {
   var canvas = document.getElementById('chart');
   var wrap   = canvas.parentElement;
   var W = wrap.clientWidth  || 440;
   var H = wrap.clientHeight || 130;
-  canvas.width  = Math.round(W * devicePixelRatio);
-  canvas.height = Math.round(H * devicePixelRatio);
+  if (canvas._w !== W || canvas._h !== H) {
+    canvas.width  = Math.round(W * devicePixelRatio);
+    canvas.height = Math.round(H * devicePixelRatio);
+    canvas._w = W; canvas._h = H;
+  }
   var ctx = canvas.getContext('2d');
+  ctx.save();
   ctx.scale(devicePixelRatio, devicePixelRatio);
+  ctx.clearRect(0, 0, W, H);
 
   var vals = dailyData.map(function(d){ return d.max; });
   vals[vals.length - 1] = currentVal;
 
   var minV = Math.min.apply(null, vals) - 0.3;
   var maxV = Math.max.apply(null, vals) + 0.3;
-  var pad  = { top: 22, right: 10, bottom: 6, left: 10 };
+  var pad  = { top: 22, right: 26, bottom: 6, left: 26 };
   var cW   = W - pad.left - pad.right;
   var cH   = H - pad.top  - pad.bottom;
   var n    = vals.length;
 
   var toX = function(i){ return pad.left + (i / (n - 1)) * cW; };
   var toY = function(v){ return pad.top + cH - ((v - minV) / (maxV - minV)) * cH; };
+  var points = [];
+  for (var pi = 0; pi < n; pi++) points.push({ x: toX(pi), y: toY(vals[pi]) });
 
   var grad = ctx.createLinearGradient(0, pad.top, 0, H);
   grad.addColorStop(0, 'rgba(0,212,255,0.30)');
   grad.addColorStop(1, 'rgba(0,212,255,0)');
   ctx.beginPath();
-  ctx.moveTo(toX(0), toY(vals[0]));
-  for (var i = 1; i < n; i++) ctx.lineTo(toX(i), toY(vals[i]));
-  ctx.lineTo(toX(n-1), H); ctx.lineTo(toX(0), H);
+  ctx.moveTo(points[0].x, points[0].y);
+  for (var i = 1; i < n; i++) ctx.lineTo(points[i].x, points[i].y);
+  ctx.lineTo(points[n-1].x, H); ctx.lineTo(points[0].x, H);
   ctx.closePath(); ctx.fillStyle = grad; ctx.fill();
 
   ctx.beginPath();
-  ctx.moveTo(toX(0), toY(vals[0]));
-  for (var j = 1; j < n; j++) ctx.lineTo(toX(j), toY(vals[j]));
+  ctx.moveTo(points[0].x, points[0].y);
+  for (var j = 1; j < n; j++) ctx.lineTo(points[j].x, points[j].y);
   ctx.strokeStyle = '#00d4ff'; ctx.lineWidth = 2;
   ctx.lineJoin = 'round';
   ctx.shadowBlur = 8; ctx.shadowColor = '#00d4ff';
   ctx.stroke(); ctx.shadowBlur = 0;
 
+  // Flie\u00dfende Partikel entlang der Linie \u2014 mehrere, phasenversetzt, wandern
+  // kontinuierlich von \u00e4ltestem zu heutigem Punkt (und wrappen dann zur\u00fcck).
+  // ip = kontinuierliche "Segmentposition"; numerisch gegen Wrap-Verhalten
+  // an den R\u00e4ndern (negativ, exakt n-1) getestet.
+  var t = animT || 0;
+  var nParticles = 3;
+  for (var pk = 0; pk < nParticles; pk++) {
+    var ipRaw = t * 0.6 + (pk / nParticles) * (n - 1);
+    var span = n - 1;
+    var ip = ((ipRaw % span) + span) % span;
+    var i0 = Math.floor(ip);
+    var frac = ip - i0;
+    var i1 = Math.min(i0 + 1, n - 1);
+    var qx = points[i0].x + (points[i1].x - points[i0].x) * frac;
+    var qy = points[i0].y + (points[i1].y - points[i0].y) * frac;
+    var alpha = 0.35 + 0.35 * Math.sin(frac * Math.PI); // sanftes Ein-/Ausblenden je Segment
+    ctx.globalAlpha = alpha;
+    ctx.beginPath();
+    ctx.arc(qx, qy, 2.2, 0, Math.PI * 2);
+    ctx.fillStyle = '#00d4ff';
+    ctx.shadowBlur = 6; ctx.shadowColor = '#00d4ff';
+    ctx.fill();
+    ctx.shadowBlur = 0; ctx.globalAlpha = 1;
+  }
+
   for (var p = 0; p < n; p++) {
-    var px = toX(p), py = toY(vals[p]);
+    var px = points[p].x, py = points[p].y;
     var isToday = (p === n - 1);
+    // Puls-Gl\u00fchen am heutigen Punkt \u2014 sanft atmend statt starr
+    var pulse = isToday ? (0.5 + 0.5 * Math.sin(t * 2.2)) : 0;
+    var rr = isToday ? (5 + pulse * 1.5) : 3;
+    var glow = isToday ? (10 + pulse * 8) : 4;
 
     ctx.beginPath();
-    ctx.arc(px, py, isToday ? 5 : 3, 0, Math.PI * 2);
+    ctx.arc(px, py, rr, 0, Math.PI * 2);
     ctx.fillStyle = '#000'; ctx.fill();
     ctx.strokeStyle = isToday ? '#00ff88' : '#00d4ff';
     ctx.lineWidth   = isToday ? 2.5 : 1.5;
-    ctx.shadowBlur  = isToday ? 12 : 4;
+    ctx.shadowBlur  = glow;
     ctx.shadowColor = isToday ? '#00ff88' : '#00d4ff';
     ctx.stroke(); ctx.shadowBlur = 0;
 
@@ -177,19 +219,55 @@ function drawChart(dailyData, currentVal) {
     ctx.font         = 'bold ' + (isToday ? 12 : 10) + 'px Share Tech Mono,monospace';
     ctx.textAlign    = 'center'; ctx.textBaseline = 'bottom';
     if (isToday) { ctx.shadowBlur = 6; ctx.shadowColor = '#00ff88'; }
-    ctx.fillText(vals[p].toFixed(1).replace('.',',') + '\u00b0', px, py - 5);
+    ctx.fillText(vals[p].toFixed(1).replace('.',',') + '\u00b0', px, py - rr - 3);
     ctx.shadowBlur = 0;
   }
+  ctx.restore();
 
-  var ax = document.getElementById('chart-axis');
-  ax.innerHTML = '';
-  for (var d = 0; d < dailyData.length; d++) {
-    var s = document.createElement('span');
-    var isLast = (d === dailyData.length - 1);
-    s.textContent = isLast ? 'HEUTE' : dailyData[d].label;
-    if (isLast) s.className = 'heute';
-    ax.appendChild(s);
+  if (updateAxis) {
+    var ax = document.getElementById('chart-axis');
+    ax.innerHTML = '';
+    for (var d = 0; d < dailyData.length; d++) {
+      var s = document.createElement('span');
+      var isLast = (d === dailyData.length - 1);
+      s.textContent = isLast ? 'HEUTE' : dailyData[d].label;
+      if (isLast) s.className = 'heute';
+      ax.appendChild(s);
+    }
   }
+}
+
+// Dezente Wellenanimation \u2014 wasserthematisch, l\u00e4uft unabh\u00e4ngig vom Chart.
+function drawWave(animT) {
+  var canvas = document.getElementById('wave');
+  if (!canvas) return;
+  var wrap = canvas.parentElement;
+  var W = wrap.clientWidth  || 240;
+  var H = wrap.clientHeight || 20;
+  if (canvas._w !== W || canvas._h !== H) {
+    canvas.width  = Math.round(W * devicePixelRatio);
+    canvas.height = Math.round(H * devicePixelRatio);
+    canvas._w = W; canvas._h = H;
+  }
+  var ctx = canvas.getContext('2d');
+  ctx.save();
+  ctx.scale(devicePixelRatio, devicePixelRatio);
+  ctx.clearRect(0, 0, W, H);
+
+  var midY = H / 2;
+  var amp = H * 0.28;
+  ctx.beginPath();
+  for (var x = 0; x <= W; x += 4) {
+    var y = midY + amp * Math.sin((x / W) * Math.PI * 3 + animT * 1.5);
+    if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.strokeStyle = '#00d4ff';
+  ctx.lineWidth = 1.5;
+  ctx.shadowBlur = 6; ctx.shadowColor = '#00d4ff';
+  ctx.globalAlpha = 0.55;
+  ctx.stroke();
+  ctx.globalAlpha = 1; ctx.shadowBlur = 0;
+  ctx.restore();
 }
 
 // Proxy-Kette mit Fallback: erst Proxy 1 versuchen, bei Fehler/Timeout naechsten,
@@ -227,7 +305,8 @@ function fetchTemp() {
 
       tempEl.textContent = current.value.toFixed(1).replace('.', ',');
       zeitEl.textContent = 'Messung ' + current.date + ' \u00b7 ' + current.time + ' Uhr';
-      drawChart(daily, current.value);
+      lastDaily = daily; lastCurrentVal = current.value;
+      drawChart(daily, current.value, animT, true);
 
       statusEl.className = 'status';
       var now = new Date();
@@ -261,6 +340,27 @@ function fitToScreen() {
   if (!isFinite(scale) || scale <= 0) scale = 1;
   widget.style.transform = 'scale(' + scale.toFixed(4) + ')';
 }
+
+// ── Animationsschleife ───────────────────────────────────────────
+// Zeitbasiert (nicht frame-basiert) \u2014 l\u00e4uft auf jedem Ger\u00e4t gleich schnell,
+// unabh\u00e4ngig von der tats\u00e4chlichen Framerate.
+var lastDaily = null, lastCurrentVal = null;
+var animT = 0;
+var lastAnimTs = null;
+
+function animateLoop() {
+  var now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+  if (lastAnimTs === null) lastAnimTs = now;
+  var dt = Math.min((now - lastAnimTs) / 1000, 0.1); // Deckel gegen Sprung nach Tab-Pause
+  lastAnimTs = now;
+  animT += dt;
+
+  drawWave(animT);
+  if (lastDaily) drawChart(lastDaily, lastCurrentVal, animT, false);
+
+  requestAnimationFrame(animateLoop);
+}
+requestAnimationFrame(animateLoop);
 
 fetchTemp();
 setInterval(fetchTemp, 15 * 60 * 1000);
