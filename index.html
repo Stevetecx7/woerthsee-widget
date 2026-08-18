@@ -77,7 +77,48 @@
 </div>
 
 <script>
-var API = '/data';
+// Direktes Scraping von GKD Bayern \u00fcber eine Kette \u00f6ffentlicher CORS-Proxies \u2014
+// n\u00f6tig, weil GitHub Pages kein eigenes Backend hat (anders als die Pi-Version,
+// die direkt vom Python-Proxy scraped). \u00d6ffentliche Gratis-Proxies fallen
+// erfahrungsgem\u00e4\u00df immer wieder mal aus, deshalb mehrere mit Fallback probieren.
+var GKD_URL = 'https://www.gkd.bayern.de/de/seen/wassertemperatur/isar/woerthsee-16651003/messwerte/tabelle';
+var PROXIES = [
+  function(u) { return 'https://corsproxy.io/?url=' + encodeURIComponent(u); },
+  function(u) { return 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u); },
+  function(u) { return 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(u); },
+  function(u) { return 'https://thingproxy.freeboard.io/fetch/' + u; }
+];
+var MONATE_KURZ = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
+
+// Robuste Regex: begrenzte, aber nicht starre L\u00fccken zwischen Datum/Zeit/Wert,
+// damit es sowohl bei "Datum+Zeit in einer Zelle" als auch bei getrennten
+// Tabellenzellen (mit HTML-Tags dazwischen) funktioniert. Numerisch gegen
+// mehrere Struktur-Varianten getestet.
+function parseGkdHtml(html) {
+  var re = /(\d{2}\.\d{2}\.\d{4})[\s\S]{0,20}?(\d{2}:\d{2})[\s\S]{0,80}?(\d+,\d+)/g;
+  var rows = [];
+  var m;
+  while ((m = re.exec(html)) !== null) {
+    rows.push({ date: m[1], time: m[2], value: parseFloat(m[3].replace(',', '.')) });
+  }
+  return rows;
+}
+
+function aggregateDailyMax(rows) {
+  var byDate = {};
+  var order = [];
+  rows.forEach(function(r) {
+    if (!(r.date in byDate)) { byDate[r.date] = -999; order.push(r.date); }
+    if (r.value > byDate[r.date]) byDate[r.date] = r.value;
+  });
+  // GKD listet neueste zuerst -> f\u00fcr die Anzeige chronologisch (\u00e4ltestes zuerst) umkehren
+  var chronological = order.slice().reverse();
+  var last7 = chronological.slice(-7);
+  return last7.map(function(d) {
+    var parts = d.split('.');
+    return { date: d, max: byDate[d], label: parts[0] + '.' + MONATE_KURZ[parseInt(parts[1], 10) - 1] };
+  });
+}
 
 function drawChart(dailyData, currentVal) {
   var canvas = document.getElementById('chart');
@@ -102,7 +143,6 @@ function drawChart(dailyData, currentVal) {
   var toX = function(i){ return pad.left + (i / (n - 1)) * cW; };
   var toY = function(v){ return pad.top + cH - ((v - minV) / (maxV - minV)) * cH; };
 
-  // Gradient fill
   var grad = ctx.createLinearGradient(0, pad.top, 0, H);
   grad.addColorStop(0, 'rgba(0,212,255,0.30)');
   grad.addColorStop(1, 'rgba(0,212,255,0)');
@@ -112,7 +152,6 @@ function drawChart(dailyData, currentVal) {
   ctx.lineTo(toX(n-1), H); ctx.lineTo(toX(0), H);
   ctx.closePath(); ctx.fillStyle = grad; ctx.fill();
 
-  // Linie
   ctx.beginPath();
   ctx.moveTo(toX(0), toY(vals[0]));
   for (var j = 1; j < n; j++) ctx.lineTo(toX(j), toY(vals[j]));
@@ -121,7 +160,6 @@ function drawChart(dailyData, currentVal) {
   ctx.shadowBlur = 8; ctx.shadowColor = '#00d4ff';
   ctx.stroke(); ctx.shadowBlur = 0;
 
-  // Punkte + Labels
   for (var p = 0; p < n; p++) {
     var px = toX(p), py = toY(vals[p]);
     var isToday = (p === n - 1);
@@ -143,7 +181,6 @@ function drawChart(dailyData, currentVal) {
     ctx.shadowBlur = 0;
   }
 
-  // X-Achse
   var ax = document.getElementById('chart-axis');
   ax.innerHTML = '';
   for (var d = 0; d < dailyData.length; d++) {
@@ -155,54 +192,72 @@ function drawChart(dailyData, currentVal) {
   }
 }
 
+// Proxy-Kette mit Fallback: erst Proxy 1 versuchen, bei Fehler/Timeout naechsten,
+// bis einer funktioniert oder alle durch sind.
+function fetchViaProxies(index, onSuccess, onAllFailed) {
+  if (index >= PROXIES.length) { onAllFailed(); return; }
+  var url = PROXIES[index](GKD_URL);
+  var xhr = new XMLHttpRequest();
+  xhr.timeout = 8000;
+  xhr.open('GET', url, true);
+  xhr.onload = function() {
+    if (xhr.status >= 200 && xhr.status < 300 && xhr.responseText && xhr.responseText.length > 200) {
+      onSuccess(xhr.responseText);
+    } else {
+      fetchViaProxies(index + 1, onSuccess, onAllFailed);
+    }
+  };
+  xhr.onerror = xhr.ontimeout = function() {
+    fetchViaProxies(index + 1, onSuccess, onAllFailed);
+  };
+  xhr.send();
+}
+
 function fetchTemp() {
   var statusEl = document.getElementById('status');
   var tempEl   = document.getElementById('temp');
   var zeitEl   = document.getElementById('zeit');
 
-  var xhr = new XMLHttpRequest();
-  xhr.timeout = 8000;
-  xhr.open('GET', API, true);
-  xhr.onload = function() {
+  fetchViaProxies(0, function(html) {
     try {
-      var data = JSON.parse(xhr.responseText);
-      if (data.error) throw new Error(data.error);
-      tempEl.textContent = data.current.toFixed(1).replace('.', ',');
-      zeitEl.textContent = 'Messung ' + data.time.replace(' ', ' \u00b7 ') + ' Uhr';
-      drawChart(data.daily, data.current);
+      var rows = parseGkdHtml(html);
+      if (rows.length === 0) throw new Error('Keine Messwerte gefunden');
+      var current = rows[0]; // GKD listet den neuesten Wert zuerst
+      var daily = aggregateDailyMax(rows);
+
+      tempEl.textContent = current.value.toFixed(1).replace('.', ',');
+      zeitEl.textContent = 'Messung ' + current.date + ' \u00b7 ' + current.time + ' Uhr';
+      drawChart(daily, current.value);
+
       statusEl.className = 'status';
       var now = new Date();
       statusEl.textContent = 'GKD Bayern \u00b7 ' +
         now.getHours().toString().padStart(2,'0') + ':' +
         now.getMinutes().toString().padStart(2,'0') + ' Uhr';
-    } catch(e) {
+    } catch (e) {
       statusEl.className = 'status error';
       statusEl.textContent = 'Fehler \u00b7 Retry in 15min';
     }
     fitToScreen();
-  };
-  xhr.onerror = xhr.ontimeout = function() {
+  }, function() {
     statusEl.className = 'status error';
     statusEl.textContent = 'Fehler \u00b7 Retry in 15min';
-  };
-  xhr.send();
+    fitToScreen();
+  });
 }
 
 // ── Fit-to-Screen ────────────────────────────────────────────────
-// Skaliert das gesamte Widget gleichm\u00e4\u00dfig, damit es IMMER exakt ins
-// Browserfenster passt \u2014 kein Scrollbalken mehr, egal wie klein/gro\u00df das
-// Fenster ist. Gleiches Prinzip wie im evcc-Widget.
 function fitToScreen() {
   var widget = document.querySelector('.widget');
   if (!widget) return;
-  widget.style.transform = 'none'; // zur\u00fccksetzen, um die echte (ungestauchte) Gr\u00f6\u00dfe zu messen
+  widget.style.transform = 'none';
   var natW = widget.scrollWidth;
   var natH = widget.scrollHeight;
   if (!natW || !natH) return;
-  var pad = 16; // kleiner Sicherheitsabstand zum Fensterrand
+  var pad = 16;
   var availW = window.innerWidth  - pad;
   var availH = window.innerHeight - pad;
-  var scale = Math.min(availW / natW, availH / natH, 1.4); // Obergrenze, damit es auf riesigen Screens nicht \u00fcberdimensioniert wird
+  var scale = Math.min(availW / natW, availH / natH, 1.4);
   if (!isFinite(scale) || scale <= 0) scale = 1;
   widget.style.transform = 'scale(' + scale.toFixed(4) + ')';
 }
@@ -213,11 +268,8 @@ setInterval(fetchTemp, 15 * 60 * 1000);
 var rt;
 window.addEventListener('resize', function(){
   clearTimeout(rt);
-  rt = setTimeout(function(){
-    fetchTemp(); // zeichnet den Chart in der neuen Gr\u00f6\u00dfe neu (ruft am Ende auch fitToScreen auf)
-  }, 300);
+  rt = setTimeout(function(){ fitToScreen(); }, 300);
 });
-
 window.addEventListener('load', fitToScreen);
 setTimeout(fitToScreen, 500);
 setInterval(fitToScreen, 15000);
