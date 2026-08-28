@@ -90,9 +90,8 @@
 var GKD_URL = 'https://www.gkd.bayern.de/de/seen/wassertemperatur/isar/woerthsee-16651003/messwerte/tabelle';
 var PROXIES = [
   { name: 'corsproxy.io',  build: function(u) { return 'https://corsproxy.io/?url=' + encodeURIComponent(u); } },
-  { name: 'corsfix',       build: function(u) { return 'https://corsfix.com/' + u; } },
+  { name: 'corsfix',       build: function(u) { return 'https://proxy.corsfix.com/?' + u; } },
   { name: 'codetabs',      build: function(u) { return 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(u); } },
-  { name: 'cors.x2u.in',   build: function(u) { return 'https://cors.x2u.in/' + u; } },
   { name: 'allorigins',    build: function(u) { return 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u); } },
   { name: 'thingproxy',    build: function(u) { return 'https://thingproxy.freeboard.io/fetch/' + u; } }
 ];
