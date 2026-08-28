@@ -64,6 +64,7 @@
   .chart-axis span{font-family:'Share Tech Mono',monospace;font-size:clamp(8px,1.4vw,12px);color:var(--muted);font-weight:bold;letter-spacing:1px;}
   .chart-axis .heute{color:var(--green);font-weight:bold;}
   .status{font-family:'Share Tech Mono',monospace;font-size:clamp(8px,1.2vw,11px);color:var(--dim);margin-top:6px;letter-spacing:1px;}
+  .debug-log{font-family:'Share Tech Mono',monospace;font-size:10px;color:#4a8a9a;margin-top:8px;text-align:left;white-space:pre-wrap;line-height:1.5;max-width:90%;margin-left:auto;margin-right:auto;}
   .status.error{color:#e05050;}
 </style>
 </head>
@@ -80,6 +81,7 @@
   <div class="chart-wrap"><canvas id="chart"></canvas></div>
   <div class="chart-axis" id="chart-axis"></div>
   <div class="status" id="status">Lade Daten...</div>
+  <div class="debug-log" id="debug-log"></div>
 </div>
 
 <script>
@@ -271,31 +273,59 @@ function drawWave(animT) {
   ctx.restore();
 }
 
+// Schreibt Diagnose-Meldungen IMMER in die Browser-Konsole, UND zus\u00e4tzlich direkt
+// sichtbar auf die Seite, wenn ?debug=1 in der URL steht \u2014 so l\u00e4sst sich das
+// Problem auch vom Handy aus zeigen (Screenshot), ohne Entwicklertools zu brauchen.
+var DEBUG_ON_SCREEN = /[?&]debug=1/.test(window.location.search);
+function widgetLog(level, msg) {
+  console[level]('W\u00f6rthsee-Widget: ' + msg);
+  if (DEBUG_ON_SCREEN) {
+    var el = document.getElementById('debug-log');
+    if (el) el.textContent += '[' + level + '] ' + msg + '\n';
+  }
+}
+
 // Proxy-Kette mit Fallback: erst Proxy 1 versuchen, bei Fehler/Timeout naechsten,
 // bis einer funktioniert oder alle durch sind.
 function fetchViaProxies(index, onSuccess, onAllFailed) {
   if (index >= PROXIES.length) {
-    console.error('W\u00f6rthsee-Widget: alle ' + PROXIES.length + ' Proxies fehlgeschlagen.');
+    widgetLog('error', 'alle ' + PROXIES.length + ' Proxies fehlgeschlagen.');
     onAllFailed();
     return;
   }
   var proxy = PROXIES[index];
   var url = proxy.build(GKD_URL);
+  widgetLog('log', 'versuche Proxy "' + proxy.name + '" \u2026');
   var xhr = new XMLHttpRequest();
-  xhr.timeout = 6000; // etwas k\u00fcrzer, damit die Fallback-Kette insgesamt schneller durchl\u00e4uft
+  xhr.timeout = 6000;
+  var advanced = false;
+  function advance(reason) {
+    // Schutz gegen Doppelaufruf: sowohl der native xhr.timeout/onerror als auch
+    // der unabh\u00e4ngige Wachhund-Timer unten k\u00f6nnten sonst beide feuern.
+    if (advanced) return;
+    advanced = true;
+    widgetLog('warn', 'Proxy "' + proxy.name + '" ' + reason + ' \u2014 versuche n\u00e4chsten.');
+    fetchViaProxies(index + 1, onSuccess, onAllFailed);
+  }
+  // Unabh\u00e4ngiger Wachhund-Timer: manche WebKit-Versionen (iOS Safari) feuern
+  // xhr.ontimeout nicht zuverl\u00e4ssig, wodurch die ganze Kette an einem einzelnen
+  // h\u00e4ngenden Proxy f\u00fcr immer steckenbleiben w\u00fcrde, ohne je weiterzuschalten.
+  var watchdog = setTimeout(function() { advance('reagiert nicht (Wachhund-Timeout)'); }, 7000);
   xhr.open('GET', url, true);
   xhr.onload = function() {
+    clearTimeout(watchdog);
+    if (advanced) return;
     if (xhr.status >= 200 && xhr.status < 300 && xhr.responseText && xhr.responseText.length > 200) {
-      console.log('W\u00f6rthsee-Widget: Daten erfolgreich \u00fcber Proxy "' + proxy.name + '" geladen.');
+      advanced = true;
+      widgetLog('log', 'Daten erfolgreich \u00fcber Proxy "' + proxy.name + '" geladen (' + xhr.responseText.length + ' Zeichen).');
       onSuccess(xhr.responseText);
     } else {
-      console.warn('W\u00f6rthsee-Widget: Proxy "' + proxy.name + '" lieferte Status ' + xhr.status + ' oder zu kurze Antwort (' + (xhr.responseText ? xhr.responseText.length : 0) + ' Zeichen) \u2014 versuche n\u00e4chsten.');
-      fetchViaProxies(index + 1, onSuccess, onAllFailed);
+      advance('lieferte Status ' + xhr.status + ' oder zu kurze Antwort (' + (xhr.responseText ? xhr.responseText.length : 0) + ' Zeichen)');
     }
   };
   xhr.onerror = xhr.ontimeout = function() {
-    console.warn('W\u00f6rthsee-Widget: Proxy "' + proxy.name + '" nicht erreichbar/Timeout \u2014 versuche n\u00e4chsten.');
-    fetchViaProxies(index + 1, onSuccess, onAllFailed);
+    clearTimeout(watchdog);
+    advance('nicht erreichbar/Timeout');
   };
   xhr.send();
 }
