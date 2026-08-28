@@ -89,10 +89,12 @@
 // erfahrungsgem\u00e4\u00df immer wieder mal aus, deshalb mehrere mit Fallback probieren.
 var GKD_URL = 'https://www.gkd.bayern.de/de/seen/wassertemperatur/isar/woerthsee-16651003/messwerte/tabelle';
 var PROXIES = [
-  function(u) { return 'https://corsproxy.io/?url=' + encodeURIComponent(u); },
-  function(u) { return 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u); },
-  function(u) { return 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(u); },
-  function(u) { return 'https://thingproxy.freeboard.io/fetch/' + u; }
+  { name: 'corsproxy.io',  build: function(u) { return 'https://corsproxy.io/?url=' + encodeURIComponent(u); } },
+  { name: 'corsfix',       build: function(u) { return 'https://corsfix.com/' + u; } },
+  { name: 'codetabs',      build: function(u) { return 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(u); } },
+  { name: 'cors.x2u.in',   build: function(u) { return 'https://cors.x2u.in/' + u; } },
+  { name: 'allorigins',    build: function(u) { return 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u); } },
+  { name: 'thingproxy',    build: function(u) { return 'https://thingproxy.freeboard.io/fetch/' + u; } }
 ];
 var MONATE_KURZ = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
 
@@ -273,19 +275,27 @@ function drawWave(animT) {
 // Proxy-Kette mit Fallback: erst Proxy 1 versuchen, bei Fehler/Timeout naechsten,
 // bis einer funktioniert oder alle durch sind.
 function fetchViaProxies(index, onSuccess, onAllFailed) {
-  if (index >= PROXIES.length) { onAllFailed(); return; }
-  var url = PROXIES[index](GKD_URL);
+  if (index >= PROXIES.length) {
+    console.error('W\u00f6rthsee-Widget: alle ' + PROXIES.length + ' Proxies fehlgeschlagen.');
+    onAllFailed();
+    return;
+  }
+  var proxy = PROXIES[index];
+  var url = proxy.build(GKD_URL);
   var xhr = new XMLHttpRequest();
-  xhr.timeout = 8000;
+  xhr.timeout = 6000; // etwas k\u00fcrzer, damit die Fallback-Kette insgesamt schneller durchl\u00e4uft
   xhr.open('GET', url, true);
   xhr.onload = function() {
     if (xhr.status >= 200 && xhr.status < 300 && xhr.responseText && xhr.responseText.length > 200) {
+      console.log('W\u00f6rthsee-Widget: Daten erfolgreich \u00fcber Proxy "' + proxy.name + '" geladen.');
       onSuccess(xhr.responseText);
     } else {
+      console.warn('W\u00f6rthsee-Widget: Proxy "' + proxy.name + '" lieferte Status ' + xhr.status + ' oder zu kurze Antwort (' + (xhr.responseText ? xhr.responseText.length : 0) + ' Zeichen) \u2014 versuche n\u00e4chsten.');
       fetchViaProxies(index + 1, onSuccess, onAllFailed);
     }
   };
   xhr.onerror = xhr.ontimeout = function() {
+    console.warn('W\u00f6rthsee-Widget: Proxy "' + proxy.name + '" nicht erreichbar/Timeout \u2014 versuche n\u00e4chsten.');
     fetchViaProxies(index + 1, onSuccess, onAllFailed);
   };
   xhr.send();
