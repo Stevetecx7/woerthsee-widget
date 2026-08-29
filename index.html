@@ -90,6 +90,18 @@
 // die direkt vom Python-Proxy scraped). \u00d6ffentliche Gratis-Proxies fallen
 // erfahrungsgem\u00e4\u00df immer wieder mal aus, deshalb mehrere mit Fallback probieren.
 var GKD_URL = 'https://www.gkd.bayern.de/de/seen/wassertemperatur/isar/woerthsee-16651003/messwerte/tabelle';
+
+// PRIM\u00e4RE Quelle: eigener Cloudflare Worker, der GKD Bayern server-seitig
+// abruft und mit CORS-Headern zur\u00fcckliefert \u2014 deutlich zuverl\u00e4ssiger als die
+// Kette gemeinsam genutzter Gratis-CORS-Proxies unten, die alle gleichzeitig
+// rate-limitiert/down sein k\u00f6nnen (schon mehrfach passiert).
+// WICHTIG: Nach dem Deployen des Workers diese URL durch die echte ersetzen
+// (Format: https://<worker-name>.<dein-account>.workers.dev)
+var WORKER_URL = 'https://woerthsee-proxy.stefan-d02.workers.dev';
+
+// Fallback-Kette (nur falls der eigene Worker selbst mal nicht erreichbar sein
+// sollte) \u2014 mehrere Gratis-Proxies, fallen erfahrungsgem\u00e4\u00df immer wieder mal
+// gleichzeitig aus, deshalb nur noch zweite Verteidigungslinie.
 var PROXIES = [
   { name: 'corsproxy.io',  build: function(u) { return 'https://corsproxy.io/?url=' + encodeURIComponent(u); } },
   { name: 'corsfix',       build: function(u) { return 'https://proxy.corsfix.com/?' + u; } },
@@ -330,37 +342,83 @@ function fetchViaProxies(index, onSuccess, onAllFailed) {
   xhr.send();
 }
 
+function handleGkdHtml(html, statusEl, tempEl, zeitEl, sourceLabel) {
+  try {
+    var rows = parseGkdHtml(html);
+    if (rows.length === 0) throw new Error('Keine Messwerte gefunden');
+    var current = rows[0]; // GKD listet den neuesten Wert zuerst
+    var daily = aggregateDailyMax(rows);
+
+    tempEl.textContent = current.value.toFixed(1).replace('.', ',');
+    zeitEl.textContent = 'Messung ' + current.date + ' \u00b7 ' + current.time + ' Uhr';
+    lastDaily = daily; lastCurrentVal = current.value;
+    drawChart(daily, current.value, animT, true);
+
+    statusEl.className = 'status';
+    var now = new Date();
+    statusEl.textContent = sourceLabel + ' \u00b7 ' +
+      now.getHours().toString().padStart(2,'0') + ':' +
+      now.getMinutes().toString().padStart(2,'0') + ' Uhr';
+  } catch (e) {
+    statusEl.className = 'status error';
+    statusEl.textContent = 'Fehler \u00b7 Retry in 15min';
+  }
+  fitToScreen();
+}
+
+// Eigener Worker als erste Anlaufstelle \u2014 mit demselben Wachhund-Schutz wie
+// die Proxy-Kette, falls die Anfrage aus irgendeinem Grund h\u00e4ngen bleibt.
+function fetchViaWorker(onSuccess, onFail) {
+  if (!WORKER_URL || WORKER_URL.indexOf('DEIN-ACCOUNT') >= 0) {
+    widgetLog('warn', 'Worker-URL noch nicht konfiguriert \u2014 \u00fcberspringe direkt zur Proxy-Kette.');
+    onFail();
+    return;
+  }
+  widgetLog('log', 'versuche eigenen Worker \u2026');
+  var xhr = new XMLHttpRequest();
+  xhr.timeout = 6000;
+  var advanced = false;
+  function fail(reason) {
+    if (advanced) return;
+    advanced = true;
+    widgetLog('warn', 'Worker ' + reason + ' \u2014 falle zur\u00fcck auf Proxy-Kette.');
+    onFail();
+  }
+  var watchdog = setTimeout(function() { fail('reagiert nicht (Wachhund-Timeout)'); }, 7000);
+  xhr.open('GET', WORKER_URL, true);
+  xhr.onload = function() {
+    clearTimeout(watchdog);
+    if (advanced) return;
+    if (xhr.status >= 200 && xhr.status < 300 && xhr.responseText && xhr.responseText.length > 200) {
+      advanced = true;
+      widgetLog('log', 'Daten erfolgreich \u00fcber eigenen Worker geladen (' + xhr.responseText.length + ' Zeichen).');
+      onSuccess(xhr.responseText);
+    } else {
+      fail('lieferte Status ' + xhr.status + ' oder zu kurze Antwort');
+    }
+  };
+  xhr.onerror = xhr.ontimeout = function() {
+    clearTimeout(watchdog);
+    fail('nicht erreichbar/Timeout');
+  };
+  xhr.send();
+}
+
 function fetchTemp() {
   var statusEl = document.getElementById('status');
   var tempEl   = document.getElementById('temp');
   var zeitEl   = document.getElementById('zeit');
 
-  fetchViaProxies(0, function(html) {
-    try {
-      var rows = parseGkdHtml(html);
-      if (rows.length === 0) throw new Error('Keine Messwerte gefunden');
-      var current = rows[0]; // GKD listet den neuesten Wert zuerst
-      var daily = aggregateDailyMax(rows);
-
-      tempEl.textContent = current.value.toFixed(1).replace('.', ',');
-      zeitEl.textContent = 'Messung ' + current.date + ' \u00b7 ' + current.time + ' Uhr';
-      lastDaily = daily; lastCurrentVal = current.value;
-      drawChart(daily, current.value, animT, true);
-
-      statusEl.className = 'status';
-      var now = new Date();
-      statusEl.textContent = 'GKD Bayern \u00b7 ' +
-        now.getHours().toString().padStart(2,'0') + ':' +
-        now.getMinutes().toString().padStart(2,'0') + ' Uhr';
-    } catch (e) {
+  fetchViaWorker(function(html) {
+    handleGkdHtml(html, statusEl, tempEl, zeitEl, 'GKD Bayern');
+  }, function() {
+    fetchViaProxies(0, function(html) {
+      handleGkdHtml(html, statusEl, tempEl, zeitEl, 'GKD Bayern');
+    }, function() {
       statusEl.className = 'status error';
       statusEl.textContent = 'Fehler \u00b7 Retry in 15min';
-    }
-    fitToScreen();
-  }, function() {
-    statusEl.className = 'status error';
-    statusEl.textContent = 'Fehler \u00b7 Retry in 15min';
-    fitToScreen();
+      fitToScreen();
+    });
   });
 }
 
